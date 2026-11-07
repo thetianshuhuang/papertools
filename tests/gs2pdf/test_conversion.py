@@ -7,8 +7,8 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from gs2pdf.convert import convert_pdf, select_slides
-from gs2pdf.errors import GS2PDFError
+from papertools.gs2pdf.convert import convert_pdf, select_slides
+from papertools.gs2pdf.errors import GS2PDFError
 
 
 def font_data(doc, xref):

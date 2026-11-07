@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
-from . import __version__
+from .. import __version__
 from .errors import GS2PDFError
 
 _SHARING_HELP = (

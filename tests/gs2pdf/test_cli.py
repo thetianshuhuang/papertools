@@ -3,9 +3,9 @@
 import pikepdf
 import pytest
 
-from gs2pdf import cli, download
-from gs2pdf.cli import main
-from gs2pdf.errors import GS2PDFError
+from papertools.gs2pdf import cli, download
+from papertools.gs2pdf.cli import main
+from papertools.gs2pdf.errors import GS2PDFError
 
 
 def test_cli_success_and_partial_failure(pdf_factory, tmp_path, capsys):

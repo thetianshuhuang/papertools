@@ -8,8 +8,8 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from gs2pdf import download
-from gs2pdf.errors import GS2PDFError
+from papertools.gs2pdf import download
+from papertools.gs2pdf.errors import GS2PDFError
 
 
 @pytest.mark.parametrize(

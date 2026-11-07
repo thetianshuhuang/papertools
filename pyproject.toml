@@ -1,7 +1,7 @@
 [project]
-name = "gs2pdf"
+name = "papertools"
 version = "0.1.0"
-description = "Download Google Slides diagrams as transparent, tightly cropped PDFs."
+description = "Command-line tools for preparing papers."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,8 @@ dependencies = [
 ]
 
 [project.scripts]
-gs2pdf = "gs2pdf.cli:main"
+bibcheck = "papertools.bibcheck.cli:main"
+gs2pdf = "papertools.gs2pdf.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]
@@ -29,6 +30,8 @@ source-include = ["uv.lock", "tests/**", ".python-version"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Lets each tool have its own tests/<tool>/test_cli.py without clashes.
+addopts = ["--import-mode=importlib"]
 
 [tool.ruff]
 line-length = 80

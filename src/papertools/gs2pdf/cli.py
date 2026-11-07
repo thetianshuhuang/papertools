@@ -8,7 +8,7 @@ from typing import Annotated
 
 import tyro
 
-from . import __version__
+from .._cli import run
 from .convert import convert_pdf
 from .download import download_presentation
 from .errors import GS2PDFError
@@ -61,17 +61,4 @@ def gs2pdf(
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    args = sys.argv[1:] if argv is None else argv
-    # tyro has no built-in version flag.
-    if args == ["--version"]:
-        print(f"gs2pdf {__version__}")
-        return 0
-    return tyro.cli(
-        gs2pdf,
-        prog="gs2pdf",
-        args=args,
-        config=(
-            tyro.conf.FlagCreatePairsOff,
-            tyro.conf.PositionalMetavarFromFieldName,
-        ),
-    )
+    return run(gs2pdf, "gs2pdf", argv)
