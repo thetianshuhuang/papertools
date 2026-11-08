@@ -92,6 +92,54 @@ def test_title_differs_and_capitalization():
     assert issues[0].message.startswith("differs")
 
 
+def test_unbraced_acronyms_depend_on_style():
+    """Unbraced acronyms are notes, or warnings for sentence-case styles."""
+    rec = Record(
+        source="crossref",
+        id="d",
+        title="Frequency-domain MLPs",
+        authors=["B A"],
+    )
+    res = resolution(primary=rec)
+    e = entry(title="Frequency-domain MLPs", author="A, B")
+    assert kinds(check(e, res)) == [(NOTE, "title")]
+    issues = check(e, res, sentence_case=True)
+    assert kinds(issues) == [(WARN, "title")]
+    assert issues[0].message == "'MLPs' will print as 'mlps'; write {MLPs}"
+
+
+def test_leading_system_name():
+    """Capitals in a leading 'Name:' count, even after a hyphen."""
+    rec = Record(
+        source="crossref",
+        id="d",
+        title="K-Radar: 4D Radar Detection",
+        authors=["B A"],
+    )
+    issues = check(
+        entry(title="K-radar: 4d radar detection", author="A, B"),
+        resolution(primary=rec),
+    )
+    assert [i.message for i in issues] == [
+        "capitalization: 'K-radar' should be {K-Radar}",
+        "capitalization: '4d' should be {4D}",
+    ]
+    # Hyphenated words elsewhere are ordinary title case.
+    rec = Record(
+        source="crossref",
+        id="d",
+        title="Self-Supervised Learning",
+        authors=["B A"],
+    )
+    assert (
+        check(
+            entry(title="Self-supervised learning", author="A, B"),
+            resolution(primary=rec),
+        )
+        == []
+    )
+
+
 def test_authors_accent_truncation_and_mismatch():
     """Each author problem is reported with the source that disagrees."""
     issues = check(
@@ -152,8 +200,8 @@ def test_metadata_mismatches():
         (WARN, "pages"),
         (WARN, "doi"),
     ]
-    issues = check(good(doi=""), resolution())
-    assert kinds(issues) == [(NOTE, "doi")]
+    # A missing DOI is not reported: most styles don't print it.
+    assert check(good(doi=""), resolution()) == []
 
 
 def test_scholar_artifacts_on_iclr():
@@ -211,3 +259,45 @@ def test_arxiv_id_forms():
     ]:
         e = parse_entry(f"@misc{{k, {field}}}")
         assert entry_arxiv_id(e) == "2301.08243", field
+
+
+def test_csl_subtitle_and_print_year():
+    """ACM subtitles are joined; the print year wins over online-first."""
+    from papertools.bibcheck.sources import Sources
+
+    rec = Sources._csl(
+        {
+            "DOI": "10.1145/x",
+            "title": "SpotFi",
+            "subtitle": ["Decimeter Level Localization Using WiFi"],
+            "issued": {"date-parts": [[2012, 11, 14]]},
+            "published-print": {"date-parts": [[2013, 8]]},
+        }
+    )
+    assert rec.title == "SpotFi: Decimeter Level Localization Using WiFi"
+    assert rec.year == "2013"
+    assert rec.other_years == {"2012"}
+    rec = Sources._csl({"title": ["A: B"], "subtitle": ["B"]})
+    assert rec.title == "A: B"
+
+
+def test_journal_years():
+    """Online and print years both pass; early access is only a note."""
+    rec = Record(
+        source="crossref",
+        id="d",
+        title="T",
+        authors=["B A"],
+        venue="IEEE Sensors Journal",
+        year="2024",
+        other_years={"2023"},
+    )
+    article = parse_entry(
+        "@article{k, title={T}, author={A, B}, journal={IEEE Sensors Journal},"
+        " year={2023}}"
+    )
+    assert check(article, resolution(primary=rec)) == []
+    rec.other_years = set()
+    assert kinds(check(article, resolution(primary=rec))) == [(NOTE, "year")]
+    inproc = entry(title="T", author="A, B", booktitle="CVPR", year="2023")
+    assert kinds(check(inproc, resolution(primary=rec))) == [(WARN, "year")]

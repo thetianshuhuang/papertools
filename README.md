@@ -31,7 +31,6 @@ bibcheck main.bib --fix              # rewrite flagged entries; original saved a
 he2022masked  (doi 10.1109/cvpr52688.2022.01553, via title)
   warn  author  accent: ours='Piotr Dollar' arxiv='Piotr Dollár'
   warn  pages   ours=16000--16009 crossref=15979-15988
-  note  doi     missing; record has 10.1109/cvpr52688.2022.01553
 oquab2023dinov2  (arXiv 2304.07193, via arXiv id)
   warn  title   capitalization: 'Dinov2' should be {DINOv2}
   warn  author  truncated with 'and others' (full list has 26 authors)
@@ -43,13 +42,15 @@ Each entry is matched by its DOI, then its arXiv id, then an exact title search,
 | Kind | Checks |
 | --- | --- |
 | `missing` | No record with this title exists anywhere: possibly a hallucinated reference. |
-| `title` | Title differs from the record, or capitals were lost (`Videomae` for `VideoMAE`). A *note* suggests bracing mixed-case words that sentence-casing styles would lowercase. |
+| `title` | Title differs from the record, or capitals were lost (`Videomae` for `VideoMAE`, `K-radar:` for `K-Radar:`). Unbraced acronyms (`MLPs`) are warnings if the paper's style lowercases titles, otherwise notes. |
 | `author` | Author count, `and others`, order, lost accents, all-caps names, and misspellings, compared against the record, DBLP, and arXiv. Differences that only arXiv or DBLP report (while the publisher agrees with you) are notes, as are nicknames (`Mido`/`Mahmoud`). |
 | `arxiv` | The entry cites arXiv, but a published version exists. |
 | `venue`, `year`, `pages`, `doi` | Disagreements with the published record, plus Scholar artifacts such as `volume` equal to the year or pages on an ICLR paper. Venues compare by conference, so `booktitle=CVPR` matches `2022 IEEE/CVF Conference on ... (CVPR)`. |
 | `key` | Duplicate keys, or two entries for the same paper. |
 
-Warnings are probably wrong; notes are worth a look (`--hide-notes` hides them). Read each warning before acting on it, since sources are sometimes the ones in error: arXiv has typos, and IEEE drops accents.
+Only warnings are shown by default; `--notes` adds minor findings that are usually fine. Read each warning before acting on it, since sources are sometimes the ones in error: arXiv has typos, and IEEE drops accents.
+
+Whether the style lowercases titles is read from the `\bibliographystyle` in the `.tex` files next to the `.bib` (`plainnat`, `ieeenat_fullname`, and most natbib styles do; `IEEEtran`, `splncs04`, ACM, and biblatex don't). Override it with `--case sentence` or `--case keep`.
 
 `--fix` replaces each entry that has warnings with the authoritative BibTeX (the published version where one exists), keeping its key and every other byte of the file. Venue names come from the publisher, so `@String` abbreviations in fixed entries are replaced by full names. Entries are left alone when no record matches, and when the only published source is PMLR (ICML, AISTATS, CoRL), which has no BibTeX API; copy those from the paper's page on proceedings.mlr.press.
 

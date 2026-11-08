@@ -134,15 +134,16 @@ def protect(title: str, proper: tuple[str, ...] = ()) -> str:
     """Brace words that a sentence-casing ``.bst`` would mangle.
 
     That is, words with internal capitals (VideoMAE), letter-digit mixes
-    (DINOv2), and the given proper nouns.
+    (DINOv2), a leading name before a colon (K-Radar:), and the given proper
+    nouns.
     """
 
-    def word(w: str) -> str:
+    def word(i: int, w: str) -> str:
         core = w.strip("{}")
         if w.startswith("{") or not core:
             return w
         if (
-            any(re.search(r"[A-Z]", part[1:]) for part in core.split("-"))
+            needs_protection(core, leading=i == 0)
             or (re.search(r"\d", core) and re.search(r"[A-Za-z]", core))
             or core.rstrip(":,.?!") in proper
         ):
@@ -151,12 +152,20 @@ def protect(title: str, proper: tuple[str, ...] = ()) -> str:
 
     if title.startswith("{") and title.endswith("}") and title.count("{") == 1:
         return title
-    return " ".join(word(w) for w in title.split(" "))
+    return " ".join(word(i, w) for i, w in enumerate(title.split(" ")))
 
 
-def needs_protection(word: str) -> bool:
-    """Whether ``word`` has capitals a sentence-casing style would lose."""
-    core = word.strip(":,.?!;()")
+def needs_protection(word: str, *, leading: bool = False) -> bool:
+    """Whether ``word`` has capitals a sentence-casing style would lose.
+
+    With ``leading``, ``word`` is the title's first word; if it ends with a
+    colon it names the paper's system (K-Radar:, ColoRadar:), so every capital
+    after the first letter counts, including after hyphens.
+    """
+    core = word.strip(",.?!;()")
+    if leading and core.endswith(":") and re.search(r"[A-Z]", core[1:]):
+        return True
+    core = core.strip(":")
     return bool(core) and (
         any(re.search(r"[A-Z]", part[1:]) for part in core.split("-"))
         or bool(re.search(r"\d", core) and re.search(r"[A-Z]", core))

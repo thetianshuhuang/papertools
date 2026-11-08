@@ -139,7 +139,7 @@ def fix_file(
             skipped.append((entry.key, "no matching record"))
             continue
         if record is None:
-            where = f" ({res.hint.where})" if res.hint else ""
+            where = f" ({res.hint.venue})" if res.hint else ""
             skipped.append(
                 (
                     entry.key,

@@ -88,5 +88,7 @@ def test_protect_and_pages():
     """Brace mixed-case words; normalize page dashes."""
     assert protect("A ConvNet for the 2020s") == "A {ConvNet} for the {2020s}"
     assert protect("{DINO}v2: Learning") == "{DINO}v2: Learning"
+    assert protect("K-Radar: 4D Radar") == "{K-Radar:} {4D} Radar"
+    assert protect("Self-Supervised Learning") == "Self-Supervised Learning"
     assert norm_pages("15979–15988") == "15979--15988"
     assert norm_pages("1 - 5") == "1--5"

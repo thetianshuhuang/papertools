@@ -37,8 +37,16 @@ from .errors import BibCheckError
 from .text import delatex, first_last, norm_title, split_authors
 
 _RETRY_DELAYS = [2, 5, 10]
-# Minimum seconds between requests, per host (arXiv asks for 3 s).
-_MIN_INTERVAL = {"export.arxiv.org": 3.0, "api.semanticscholar.org": 1.1}
+_MAX_RETRY_AFTER = 120
+# Request budgets per host: (requests, per seconds). Staying under them is
+# much faster than collecting 429s. arXiv asks for one request per 3 s;
+# OpenReview allows 20 searches a minute on v2 and 5 on v1.
+_RATE_LIMITS = {
+    "export.arxiv.org": (1, 3.0),
+    "api.semanticscholar.org": (1, 1.1),
+    "api2.openreview.net": (20, 61.0),
+    "api.openreview.net": (5, 61.0),
+}
 _CACHE_TTL = 7 * 24 * 3600
 _ATOM = {
     "a": "http://www.w3.org/2005/Atom",
@@ -81,6 +89,7 @@ class Record:
     preprint: bool = False
     bibtex: str | None = None
     published_doi: str = ""
+    other_years: set[str] = field(default_factory=set)
 
     @property
     def label(self) -> str:
@@ -105,10 +114,17 @@ class Record:
 class Http:
     """GET with retries, per-host throttling, and an optional disk cache."""
 
-    def __init__(self, *, timeout: float = 30, cache_dir: Path | None = None):
+    def __init__(
+        self,
+        *,
+        timeout: float = 30,
+        cache_dir: Path | None = None,
+        on_wait: Callable[[str], None] | None = None,
+    ):
         self.timeout = timeout
         self.cache_dir = cache_dir
-        self._last: dict[str, float] = {}
+        self.on_wait = on_wait
+        self._sent: dict[str, list[float]] = {}
         agent = f"papertools/{__version__}"
         # Crossref's "polite pool" is faster for clients that identify.
         if mailto := os.environ.get("CROSSREF_MAILTO"):
@@ -151,13 +167,24 @@ class Http:
             except OSError:
                 pass  # A cache that can't be written is just a slower run.
 
+    def _sleep(self, seconds: float, why: str) -> None:
+        if seconds <= 0:
+            return
+        if self.on_wait and seconds >= 2:
+            self.on_wait(f"waiting {seconds:.0f}s: {why}")
+        time.sleep(seconds)
+
     def _throttle(self, host: str) -> None:
-        wait = _MIN_INTERVAL.get(host, 0) - (
-            time.monotonic() - self._last.get(host, -1e9)
-        )
-        if wait > 0:
-            time.sleep(wait)
-        self._last[host] = time.monotonic()
+        """Wait until sending to ``host`` stays within its budget."""
+        if host not in _RATE_LIMITS:
+            return
+        count, window = _RATE_LIMITS[host]
+        sent = self._sent.setdefault(host, [])
+        now = time.monotonic()
+        sent[:] = [t for t in sent if now - t < window]
+        if len(sent) >= count:
+            self._sleep(sent[0] + window - now, f"{host} rate limit")
+        sent.append(time.monotonic())
 
     def _fetch(self, url: str, accept: str | None) -> str:
         headers = {"User-Agent": self.user_agent}
@@ -173,13 +200,16 @@ class Http:
                 ) as r:
                     return r.read().decode("utf-8", errors="replace")
             except HTTPError as exc:
+                retry_after = exc.headers.get("Retry-After", "")
                 exc.close()
                 if exc.code == 404:
                     raise NotFoundError(url) from exc
                 delay = next(delays, None)
                 if delay is None or not (exc.code == 429 or exc.code >= 500):
                     raise SourceError(f"{host}: HTTP {exc.code}") from exc
-                time.sleep(delay)
+                if retry_after.isdigit():
+                    delay = min(int(retry_after) + 1, _MAX_RETRY_AFTER)
+                self._sleep(delay, f"{host} HTTP {exc.code}")
             except (OSError, HTTPException) as exc:
                 raise SourceError(f"{host}: {exc}") from exc
 
@@ -224,13 +254,27 @@ class Sources:
         title = m.get("title") or ""
         if isinstance(title, list):
             title = title[0] if title else ""
+        # ACM splits "SpotFi: Decimeter Level ..." into title and subtitle.
+        subtitle = m.get("subtitle") or ""
+        if isinstance(subtitle, list):
+            subtitle = subtitle[0] if subtitle else ""
+        if subtitle and norm_title(subtitle) not in norm_title(title):
+            title = f"{title}: {subtitle}"
         venue = m.get("container-title") or m.get("event", {}) or ""
         if isinstance(venue, dict):
             venue = venue.get("name", "")
         if isinstance(venue, list):
             venue = venue[0] if venue else ""
-        parts = (m.get("issued") or {}).get("date-parts") or [[None]]
-        year = str(parts[0][0]) if parts[0] and parts[0][0] else ""
+        # Journals have an online (or early-access) date and an issue date,
+        # and either year is a legitimate citation: PhaseLift appeared online
+        # in 2012 and in vol. 66 no. 8 in 2013. The print year is reported;
+        # the others are accepted too.
+        years = []
+        for key in ("published-print", "issued", "published-online"):
+            parts = (m.get(key) or {}).get("date-parts") or [[None]]
+            if parts[0] and parts[0][0]:
+                years.append(str(parts[0][0]))
+        year = years[0] if years else ""
         authors = []
         for a in m.get("author") or []:
             name = a.get("literal") or a.get("name")
@@ -250,6 +294,7 @@ class Sources:
             doi=m.get("DOI", ""),
             preprint=m.get("type") in {"posted-content", "article"}
             and not venue,
+            other_years=set(years[1:]),
         )
 
     def crossref_search(self, title: str) -> list[Record]:
@@ -259,7 +304,8 @@ class Sources:
             params={
                 "query.bibliographic": delatex(title),
                 "rows": 5,
-                "select": "DOI,title,container-title,issued,author,type,page",
+                "select": "DOI,title,subtitle,container-title,issued,"
+                "published-print,published-online,author,type,page",
             },
         )
         items = _json(body, "Crossref")["message"]["items"]
@@ -329,10 +375,17 @@ class Sources:
 
     # --- OpenReview and its DBLP mirror -------------------------------------
 
-    def openreview_search(self, title: str) -> list[Record]:
-        """Search OpenReview; returns official records and DBLP mirrors."""
+    def openreview_search(
+        self, title: str, legacy: bool = False
+    ) -> list[Record]:
+        """Search OpenReview; returns official records and DBLP mirrors.
+
+        With ``legacy``, search the v1 API instead, which alone holds venues
+        from before OpenReview's 2023 migration (ICLR 2021, for example).
+        """
+        api = "api.openreview.net" if legacy else "api2.openreview.net"
         body = self.get(
-            "https://api2.openreview.net/notes/search",
+            f"https://{api}/notes/search",
             params={"term": delatex(title), "source": "forum", "limit": 20},
         )
         out = []

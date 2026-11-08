@@ -4,7 +4,7 @@ import math
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import tyro
 
@@ -15,6 +15,7 @@ from .errors import BibCheckError
 from .fix import fix_file
 from .resolve import Resolver
 from .sources import Http, Sources, default_cache_dir
+from .style import detect
 from .text import norm_title
 
 
@@ -41,17 +42,43 @@ def _duplicates(entries) -> dict[str, list[Issue]]:
     return out
 
 
+class _Progress:
+    """A single self-overwriting status line, only on a terminal."""
+
+    def __init__(self):
+        self.live = sys.stderr.isatty()
+        self.text = ""
+
+    def update(self, text: str) -> None:
+        self.text = text
+        if self.live:
+            sys.stderr.write(f"\r\033[K{text}")
+            sys.stderr.flush()
+
+    def detail(self, text: str) -> None:
+        """Append a temporary detail, e.g. why the run is waiting."""
+        if self.live:
+            sys.stderr.write(f"\r\033[K{self.text} ({text})")
+            sys.stderr.flush()
+
+    def clear(self) -> None:
+        if self.live:
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
+
+
 def bibcheck(
     bib: Path,
     /,
     *,
     keys: Annotated[str | None, tyro.conf.arg(metavar="K1,K2")] = None,
     fix: bool = False,
-    hide_notes: bool = False,
+    notes: bool = False,
+    case: Literal["auto", "sentence", "keep"] = "auto",
     no_cache: bool = False,
     timeout: float = 30,
 ) -> int:
-    """Check a .bib file against Crossref, arXiv, OpenReview, and DBLP.
+    r"""Check a .bib file against Crossref, arXiv, OpenReview, and DBLP.
 
     Reports titles, authors, venues, years, pages, and DOIs that disagree with
     the authoritative record, and arXiv entries with a published version.
@@ -62,7 +89,11 @@ def bibcheck(
         keys: Only check these comma-separated keys.
         fix: Rewrite entries with warnings from the authoritative BibTeX,
             keeping their keys; the original is saved as BIB.bak.
-        hide_notes: Show only warnings, not notes (minor findings).
+        notes: Also show notes: minor findings such as nicknames, or
+            differences only arXiv or DBLP report, that are usually fine.
+        case: Whether the bibliography style lowercases titles, which makes
+            unbraced acronyms (MLPs, MIMO) warnings. "auto" reads the
+            \bibliographystyle in .tex files next to the .bib.
         no_cache: Don't use or update the 7-day lookup cache.
         timeout: Timeout in seconds for each request.
 
@@ -88,8 +119,17 @@ def bibcheck(
             return 2
         entries = [e for e in entries if e.key in wanted]
 
+    if case == "auto":
+        sentence_case, why = detect(bib)
+        print(f"Style: {why}", file=sys.stderr)
+    else:
+        sentence_case = case == "sentence"
+
+    progress = _Progress()
     http = Http(
-        timeout=timeout, cache_dir=None if no_cache else default_cache_dir()
+        timeout=timeout,
+        cache_dir=None if no_cache else default_cache_dir(),
+        on_wait=progress.detail,
     )
     sources = Sources(http)
     resolver = Resolver(sources)
@@ -98,20 +138,23 @@ def bibcheck(
     counts = Counter()
     try:
         for n, entry in enumerate(entries, 1):
-            print(f"[{n}/{len(entries)}] {entry.key}", file=sys.stderr)
+            progress.update(f"[{n}/{len(entries)}] {entry.key}")
             res = resolver.resolve(entry)
-            issues = duplicates.get(entry.key, []) + check(entry, res)
+            issues = duplicates.get(entry.key, []) + check(
+                entry, res, sentence_case=sentence_case
+            )
             results.append((entry, res, issues))
+            progress.clear()
             for error in res.errors:
-                print(f"  {error}", file=sys.stderr)
-            shown = [i for i in issues if not hide_notes or i.level != NOTE]
+                print(f"{entry.key}: {error}", file=sys.stderr)
+            shown = [i for i in issues if notes or i.level != NOTE]
             if res.errors and res.primary is None:
                 counts["unchecked"] += 1
             if any(i.kind == "missing" for i in issues):
                 counts["missing"] += 1
             if any(i.level == WARN for i in issues):
                 counts["warn"] += 1
-            elif shown:
+            elif issues:
                 counts["note"] += 1
             if shown:
                 found = (
@@ -124,14 +167,18 @@ def bibcheck(
                     print(f"  {i.level:4}  {i.kind:7} {i.message}")
             sys.stdout.flush()
     except KeyboardInterrupt:
+        progress.clear()
         print("bibcheck: cancelled.", file=sys.stderr)
         return 130
 
     summary = (
         f"Checked {len(entries)} entries: {counts['warn']} with warnings"
-        + (f", {counts['note']} with notes only" if not hide_notes else "")
         + f", {counts['missing']} not found"
     )
+    if counts["note"]:
+        summary += f", {counts['note']} with notes only"
+        if not notes:
+            summary += " (--notes to show)"
     if counts["unchecked"]:
         summary += f", {counts['unchecked']} unchecked (source errors)"
     print(summary + ".")

@@ -159,12 +159,27 @@ class Resolver:
         if res.primary is None or res.primary.source != "arxiv":
             candidates += self._try(res, "arXiv", s.arxiv_search, title) or []
         authors = res.primary.authors if res.primary else ours
-        matches = [
-            r
-            for r in candidates
-            if norm_title(r.title) == norm_title(title)
-            and same_paper(authors, r.authors)
-        ]
+
+        def matching(records: list[Record]) -> list[Record]:
+            return [
+                r
+                for r in records
+                if norm_title(r.title) == norm_title(title)
+                and same_paper(authors, r.authors)
+            ]
+
+        matches = matching(candidates)
+        # OpenReview's v1 API holds pre-2023 venues (ICLR 2021, ...) but
+        # allows only 5 searches a minute, so it's the last resort.
+        if (
+            want_published
+            and not any(not r.preprint for r in matches)
+            and not (res.primary and res.primary.published_doi)
+        ):
+            legacy = self._try(
+                res, "OpenReview", s.openreview_search, title, True
+            )
+            matches += matching(legacy or [])
 
         if res.primary is None:
             res.primary = self._pick(matches, entry)

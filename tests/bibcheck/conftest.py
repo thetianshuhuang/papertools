@@ -123,6 +123,7 @@ class FakeWeb:
             REG_TITLE: [REG_NOTE, REJECTED_NOTE],
             "Rejected Paper About Things": [REJECTED_NOTE],
         }
+        self.openreview_v1: dict[str, list[dict]] = {}
         self.arxiv_ids = {"2309.16588": REG_ATOM}
         self.arxiv_titles = {"Vision Transformers Need Registers": REG_ATOM}
         self.crossref: dict[str, list[dict]] = {}
@@ -143,6 +144,9 @@ class FakeWeb:
         if host == "api.crossref.org":
             items = _lookup(self.crossref, params["query.bibliographic"], [])
             return json.dumps({"message": {"items": items}})
+        if host == "api.openreview.net":  # v1: venues before 2023
+            notes = _lookup(self.openreview_v1, params["term"], [])
+            return json.dumps({"notes": notes})
         if host == "api2.openreview.net":
             notes = _lookup(self.openreview, params["term"], [])
             return json.dumps({"notes": notes})

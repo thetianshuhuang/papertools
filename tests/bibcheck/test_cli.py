@@ -55,7 +55,7 @@ def test_doi_takes_priority_over_title(web, tmp_path, capsys):
             "year={2022}", "year={2022}, doi={10.1109/cvpr52688.2022.01553}"
         )
     )
-    main([str(path), "--hide-notes"])
+    main([str(path)])
     assert "api.crossref.org" not in web.calls
     assert (
         "(doi 10.1109/cvpr52688.2022.01553, via doi)" in capsys.readouterr().out
@@ -133,3 +133,65 @@ def test_errors_and_version(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2
+
+
+VIT_NOTE = {
+    "id": "YicbFdNTTy",
+    "pdate": 1610474034431,
+    "content": {
+        "title": "An Image is Worth 16x16 Words: Transformers for Image "
+        "Recognition at Scale",
+        "venue": "ICLR 2021 Oral",
+        "venueid": "ICLR.cc/2021/Conference",
+        "authors": ["Alexey Dosovitskiy", "Lucas Beyer"],
+        "_bibtex": "@inproceedings{dosovitskiy2021an,\ntitle={An Image is "
+        "Worth 16x16 Words: Transformers for Image Recognition at Scale},\n"
+        "author={Alexey Dosovitskiy and Lucas Beyer},\nbooktitle={"
+        "International Conference on Learning Representations},\n"
+        "year={2021}\n}",
+    },
+}
+
+
+def test_openreview_v1_records_are_found(web, tmp_path, capsys):
+    """Pre-2023 venues (API v1, plain content values) count as published."""
+    web.openreview_v1[VIT_NOTE["content"]["title"]] = [VIT_NOTE]
+    path = tmp_path / "a.bib"
+    path.write_text(
+        "@article{dosovitskiy2020image, title={An image is worth 16x16 words: "
+        "Transformers for image recognition at scale},"
+        " author={Dosovitskiy, Alexey},"
+        " journal={arXiv preprint arXiv:2010.11929},"
+        " year={2020}}"
+    )
+    assert main([str(path), "--fix"]) == 1
+    out = capsys.readouterr().out
+    assert (
+        "published version exists: ICLR 2021 Oral (openreview YicbFdNTTy)"
+        in out
+    )
+    assert "count: ours=1 openreview=2" in out
+    assert (
+        "booktitle={International Conference on Learning Representations}"
+        in (path.read_text())
+    )
+
+
+def test_quiet_output(web, bib, capsys):
+    """No per-entry progress off a terminal; notes only with --notes."""
+    web.crossref["Masked autoencoders are scalable vision learners"] = []
+    main([str(bib), "--keys", "darcet2023vision"])
+    captured = capsys.readouterr()
+    assert "[1/1]" not in captured.err
+    assert "note" not in captured.out
+    main(
+        [
+            str(bib),
+            "--keys",
+            "darcet2023vision",
+            "--notes",
+            "--case",
+            "sentence",
+        ]
+    )
+    assert "Style:" not in capsys.readouterr().err

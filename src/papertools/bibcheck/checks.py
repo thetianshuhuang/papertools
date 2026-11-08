@@ -31,8 +31,14 @@ class Issue:
     message: str
 
 
-def check(entry: Entry, res: Resolution) -> list[Issue]:
-    """Return every issue found for ``entry``."""
+def check(
+    entry: Entry, res: Resolution, *, sentence_case: bool = False
+) -> list[Issue]:
+    """Return every issue found for ``entry``.
+
+    With ``sentence_case`` (the paper's ``.bst`` lowercases titles), unbraced
+    acronyms are warnings rather than notes.
+    """
     issues: list[Issue] = []
     if res.bad_doi:
         issues.append(
@@ -49,7 +55,7 @@ def check(entry: Entry, res: Resolution) -> list[Issue]:
                 )
             )
         return issues
-    issues += _title(entry, res.primary)
+    issues += _title(entry, res.primary, sentence_case)
     issues += _authors(entry, res)
     preprint = is_preprint_entry(entry)
     if preprint and res.published:
@@ -66,7 +72,9 @@ def check(entry: Entry, res: Resolution) -> list[Issue]:
             Issue(
                 WARN,
                 "arxiv",
-                f"published in {res.hint.where} according to Semantic "
+                # Semantic Scholar's year is the first (arXiv) year, so it
+                # is not shown.
+                f"published in {res.hint.venue} according to Semantic "
                 "Scholar; cite that version",
             )
         )
@@ -75,7 +83,7 @@ def check(entry: Entry, res: Resolution) -> list[Issue]:
     return issues
 
 
-def _title(entry: Entry, record: Record) -> list[Issue]:
+def _title(entry: Entry, record: Record, sentence_case: bool) -> list[Issue]:
     ours = entry.fields.get("title", "")
     if not ours:
         return [Issue(WARN, "title", "missing")]
@@ -97,9 +105,16 @@ def _title(entry: Entry, record: Record) -> list[Issue]:
         depth = ours[: m.start()].count("{") - ours[: m.start()].count("}")
         w = m[0].strip(":,.?!;()")
         words.setdefault(w.lower(), []).append((w, whole or depth > 0))
-    for w in {w.strip(":,.?!;()") for w in record.title.split()}:
-        if not needs_protection(w) or w.lower() not in words:
+    checked = set()
+    for i, raw in enumerate(record.title.split()):
+        w = raw.strip(":,.?!;()")
+        if (
+            w in checked
+            or not needs_protection(raw, leading=i == 0)
+            or w.lower() not in words
+        ):
             continue
+        checked.add(w)
         seen = words[w.lower()]
         if all(written != w for written, _ in seen):
             issues.append(
@@ -110,14 +125,20 @@ def _title(entry: Entry, record: Record) -> list[Issue]:
                 )
             )
         elif not any(braced for written, braced in seen if written == w):
-            issues.append(
-                Issue(
+            if sentence_case:
+                issue = Issue(
+                    WARN,
+                    "title",
+                    f"{w!r} will print as {w.lower()!r}; write {{{w}}}",
+                )
+            else:
+                issue = Issue(
                     NOTE,
                     "title",
                     f"unbraced {w!r} is lowercased by sentence-case styles; "
                     f"write {{{w}}}",
                 )
-            )
+            issues.append(issue)
     return issues
 
 
@@ -246,7 +267,7 @@ def _metadata(entry: Entry, res: Resolution) -> list[Issue]:
                 Issue(
                     WARN,
                     "venue",
-                    f"ours={venue!r}, Semantic Scholar={hint.where!r}",
+                    f"ours={venue!r}, Semantic Scholar={hint.venue!r}",
                 )
             )
         return issues
@@ -267,9 +288,28 @@ def _metadata(entry: Entry, res: Resolution) -> list[Issue]:
                 f"{their_family} papers have no pages or issue number",
             )
         )
-    if year and target.year and year != target.year:
+    if (
+        year
+        and target.year
+        and year != target.year
+        and year not in target.other_years
+    ):
+        # A journal article dated a year before its issue is usually cited
+        # by its early-access date (IEEE does this), which Crossref often
+        # lacks. Worth a look, but not a warning.
+        early_access = (
+            entry.type == "article"
+            and year.isdigit()
+            and target.year.isdigit()
+            and int(year) == int(target.year) - 1
+        )
         issues.append(
-            Issue(WARN, "year", f"ours={year} {target.source}={target.year}")
+            Issue(
+                NOTE if early_access else WARN,
+                "year",
+                f"ours={year} {target.source}={target.year}"
+                + (" (early access?)" if early_access else ""),
+            )
         )
     ours_pages, their_pages = f.get("pages", ""), target.pages
     if (
@@ -289,6 +329,4 @@ def _metadata(entry: Entry, res: Resolution) -> list[Issue]:
         issues.append(
             Issue(WARN, "doi", f"ours={doi} {target.source}={target.doi}")
         )
-    elif not doi and target.doi and not res.bad_doi:
-        issues.append(Issue(NOTE, "doi", f"missing; record has {target.doi}"))
     return issues
