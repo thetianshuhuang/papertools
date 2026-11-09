@@ -17,6 +17,7 @@ dependencies = [
 bibcheck = "papertools.bibcheck.cli:main"
 gs2pdf = "papertools.gs2pdf.cli:main"
 anondoc = "papertools.anondoc.cli:main"
+texabstract = "papertools.texabstract.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]

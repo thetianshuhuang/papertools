@@ -7,6 +7,7 @@ Small command-line tools for preparing papers.
 | [`bibcheck`](#bibcheck) | Check a `.bib` file against Crossref, arXiv, OpenReview, and DBLP. |
 | [`gs2pdf`](#gs2pdf) | Download Google Slides diagrams as transparent, tightly cropped PDFs. |
 | [`anondoc`](#anondoc) | Anonymize a documentation site (e.g., MkDocs or Zensical) for double-blind review. |
+| [`texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
 
 ## Install
 
@@ -20,40 +21,31 @@ This installs every command listed above.
 
 ## bibcheck
 
-Look up every entry of a `.bib` file in authoritative sources and report what disagrees. This catches the usual Google Scholar problems: arXiv citations of published papers, mangled titles (`Videomae:`), `and others`, lost accents (`Dollar`), and invented fields (`volume={2024}` on an ICLR paper).
+Look up every entry of a `.bib` file in authoritative sources and report what disagrees. This catches the usual Google Scholar problems: arXiv citations of published papers, lost capitalization, truncated author lists, lost accents, and invented fields.
 
 ```bash
 bibcheck main.bib                    # report; exits 1 if there are warnings
-bibcheck main.bib --keys he2022masked,oquab2024dinov2
+bibcheck main.bib --keys KEY1,KEY2
 bibcheck main.bib --fix              # rewrite flagged entries; original saved as main.bib.bak
 ```
 
-```
-he2022masked  (doi 10.1109/cvpr52688.2022.01553, via title)
-  warn  author  accent: ours='Piotr Dollar' arxiv='Piotr Dollár'
-  warn  pages   ours=16000--16009 crossref=15979-15988
-oquab2023dinov2  (arXiv 2304.07193, via arXiv id)
-  warn  title   capitalization: 'Dinov2' should be {DINOv2}
-  warn  author  truncated with 'and others' (full list has 26 authors)
-  warn  arxiv   published version exists: TMLR 2024 (openreview a68SUt6zFt)
-```
 
 Each entry is matched by its DOI, then its arXiv id, then an exact title search, and compared with the matching records:
 
 | Kind | Checks |
 | --- | --- |
 | `missing` | No record with this title exists anywhere: possibly a hallucinated reference. |
-| `title` | Title differs from the record, or capitals were lost (`Videomae` for `VideoMAE`, `K-radar:` for `K-Radar:`). Unbraced acronyms (`MLPs`) are warnings if the paper's style lowercases titles, otherwise notes. |
-| `author` | Author count, `and others`, order, lost accents, all-caps names, and misspellings, compared against the record, DBLP, and arXiv. Differences that only arXiv or DBLP report (while the publisher agrees with you) are notes, as are nicknames (`Mido`/`Mahmoud`). |
+| `title` | Title differs from the record, or capitals were lost (e.g., in acronyms or mixed-case names). Unbraced acronyms are warnings if the paper's style lowercases titles, otherwise notes. |
+| `author` | Author count, `and others`, order, lost accents, all-caps names, and misspellings, compared against the record, DBLP, and arXiv. Differences that only arXiv or DBLP report (while the publisher agrees with you) are notes, as are nicknames. |
 | `arxiv` | The entry cites arXiv, but a published version exists. |
-| `venue`, `year`, `pages`, `doi` | Disagreements with the published record, plus Scholar artifacts such as `volume` equal to the year or pages on an ICLR paper. Venues compare by conference, so `booktitle=CVPR` matches `2022 IEEE/CVF Conference on ... (CVPR)`. |
+| `venue`, `year`, `pages`, `doi` | Disagreements with the published record, plus Scholar artifacts such as `volume` equal to the year. Venues compare by conference, so an acronym matches the full proceedings name. |
 | `key` | Duplicate keys, or two entries for the same paper. |
 
 Only warnings are shown by default; `--notes` adds minor findings that are usually fine. Read each warning before acting on it, since sources are sometimes the ones in error: arXiv has typos, and IEEE drops accents.
 
-Whether the style lowercases titles is read from the `\bibliographystyle` in the `.tex` files next to the `.bib` (`plainnat`, `ieeenat_fullname`, and most natbib styles do; `IEEEtran`, `splncs04`, ACM, and biblatex don't). Override it with `--case sentence` or `--case keep`.
+Whether the style lowercases titles is read from the `\bibliographystyle` in the `.tex` files next to the `.bib` (most natbib styles do; biblatex doesn't). Override it with `--case sentence` or `--case keep`.
 
-`--fix` replaces each entry that has warnings with the authoritative BibTeX (the published version where one exists), keeping its key and every other byte of the file. Venue names come from the publisher, so `@String` abbreviations in fixed entries are replaced by full names. Entries are left alone when no record matches, and when the only published source is PMLR (ICML, AISTATS, CoRL), which has no BibTeX API; copy those from the paper's page on proceedings.mlr.press.
+`--fix` replaces each entry that has warnings with the authoritative BibTeX (the published version where one exists), keeping its key and every other byte of the file. Venue names come from the publisher, so `@String` abbreviations in fixed entries are replaced by full names. Entries are left alone when no record matches, and when the only published source is PMLR, which has no BibTeX API; copy those by hand.
 
 Lookups are cached for 7 days in `~/.cache/papertools/bibcheck` (`--no-cache` bypasses it). The first run takes a few seconds per entry because arXiv limits clients to one request every 3 seconds. Set `CROSSREF_MAILTO=you@example.edu` to use Crossref's faster pool.
 
@@ -89,16 +81,14 @@ The config lists the identifying terms, what to do with links that contain them,
 ```yaml
 placeholder: anonymous      # replacement for terms listed without one
 terms:                      # case-insensitive, longest first
-  RadarML:
-  Tartan*: DatasetX
-  Tartan: DatasetX          # heading anchors drop the '*': tartan-technical-documentation
-  tartanstar: datasetx
+  MyLab:
+  MyProject: ProjectX
 links:                      # URL prefix (whole path segments), first match wins
-  - match: https://radarml.github.io/abstract-dataloader/
-    action: keep            # published library; its URL is not anonymized
-  - match: https://github.com/RadarML/xwr
-    replace: https://pypi.org/project/xwr/
-  - match: https://github.com/RadarML/
+  - match: https://github.com/mylab/published-library
+    action: keep            # its URL is not anonymized
+  - match: https://github.com/mylab/tool
+    replace: https://pypi.org/project/tool/
+  - match: https://github.com/mylab/
     action: unwrap          # keep | unwrap | remove | replace: URL
 skip:                       # files to leave out, gitignore-style globs; replaces the defaults
   - 404.html
@@ -128,7 +118,7 @@ json_scripts:               # JavaScript copies of JSON files
 
 What happens to each file:
 
-- **Terms** are replaced everywhere: page text, attributes, anchors and ids (consistently, so in-page links keep working), the search index, Markdown copies of pages, and file names. A term also matches its escaped forms, such as `Tartan\*` in Markdown, `A&amp;M` in HTML, and names broken across lines.
+- **Terms** are replaced everywhere: page text, attributes, anchors and ids (consistently, so in-page links keep working), the search index, Markdown copies of pages, and file names. A term also matches its escaped forms in Markdown and HTML, and names broken across lines.
 - **Links** with link text (`<a href>`, `[text](url)`) are unwrapped or removed by rule, keeping or dropping their text. An absolute link that contains a term and matches no rule is unwrapped and listed in the summary, so you can add a rule for it. Bare URLs are kept, replaced, or deleted by rule; otherwise the terms in them are replaced. Links to the site's own URL (`site_url`, read from the canonical link or sitemap, or set in the config) are made relative.
 - **Skipped** by default: `404.html`, `objects.inv`, `llms.txt`, `llms-full.txt`, `sitemap.xml`, and `sitemap.xml.gz`, since reviewers never need them. Setting `skip` replaces this list, so repeat any of these you still want skipped; `skip: []` keeps every file. Links to skipped files are unwrapped.
 - **Stripped** by default: canonical links and `meta[name=author]`. Setting `strip` replaces these, like `skip`. Each rule has a CSS `selector` (applied to HTML pages and to HTML inside JSON strings) or a regex `pattern` (applied to every text file), an optional `files` glob list, and an optional `name` for the summary. For Material and Zensical, also strip `.md-source` (repository button), `.md-content__button` (edit and view-source buttons), `.md-source-file` (git dates and authors), and `.md-social` (footer social links).
@@ -136,9 +126,29 @@ What happens to each file:
 - **HTML** is edited in place: everything outside the removed or unwrapped elements and rewritten links stays byte-for-byte identical.
 - **Binary files** such as images and fonts are copied unchanged.
 
-`--check` reports every remaining term outside kept or replaced URLs, including terms in binary files (for example, a name embedded in a PNG) and in file names. It also reports skipped files and strip rules that still match. Each problem is printed as `path:line: term: context`. A normal run checks its own output, and still writes the output if the check fails, so you can inspect it. The check cannot know about identifying content you didn't list, such as a URL slug like `tartan-technical-documentation` derived from `Tartan*`, so list such variants as terms.
+`--check` reports every remaining term outside kept or replaced URLs, including terms in binary files (for example, a name embedded in a PNG) and in file names. It also reports skipped files and strip rules that still match. Each problem is printed as `path:line: term: context`. A normal run checks its own output, and still writes the output if the check fails, so you can inspect it. The check cannot know about identifying content you didn't list, such as URL slugs derived from a term, so list such variants as terms.
 
 Reviewers can open `index.html` from the unzipped folder directly.
+
+## texabstract
+
+Print a paper's abstract as plain text, ready to paste into a submission form. The paper's own macros are expanded, so `\name\ is $2\times$ faster\footnote{...}` becomes `Name is 2× faster`.
+
+```bash
+texabstract main.tex          # or a directory containing it
+texabstract paper/ --math tex # keep $...$ for arXiv and OpenReview, which render MathJax
+texabstract main.tex | pbcopy # or xclip -selection clipboard, wl-copy
+```
+
+The abstract is read from `\begin{abstract}...\end{abstract}`, or `\abstract{...}`, after inlining `\input`, `\include`, and `\subfile`. Given a directory, texabstract uses its `.tex` file with a `\documentclass`; if there are several, it uses the one with an abstract. The abstract goes to stdout, one line per paragraph. Warnings and the word and character counts go to stderr.
+
+- **Macros** defined with `\newcommand`, `\renewcommand`, `\providecommand`, `\DeclareRobustCommand`, and `\def` (with undelimited parameters) are expanded, including optional arguments and `\xspace`. Definitions are read in order from the paper and from style files next to it that it loads with `\usepackage`. Definitions inside braces are local and are ignored, as are definitions that use `\@` internals or `\if` conditionals, since those are layout code that texabstract cannot evaluate. Common abbreviations from conference styles, such as `\eg`, are built in. The paper's own definitions override them.
+- **Spacing** follows TeX, so a macro swallows the space after it, as in the PDF. texabstract warns about this; write `\name\ is` or `\name{} is` instead.
+- **Dropped:** footnotes, labels, spacing and font-size commands, and citations (with a warning). References print as `??` with a warning, since their numbers aren't known.
+- **Text:** formatting such as `\textbf` is removed, keeping its text. Accents, quotes, dashes, `~`, and escaped characters become Unicode.
+- **Math** (`--math unicode`, the default) becomes Unicode where possible, e.g., `$\alpha \le 10^{-3}$` → `α ≤ 10⁻³`. With `--math tex`, math is kept as `$...$`, with the paper's macros expanded inside it.
+
+Anything else is dropped with an `unknown macro` warning, keeping its argument's text. Check the warnings before pasting.
 
 ## Development
 

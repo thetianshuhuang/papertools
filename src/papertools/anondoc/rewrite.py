@@ -24,7 +24,7 @@ def term_pattern(term: str) -> str:
 
     Whitespace matches any run of whitespace or non-breaking spaces, and each
     punctuation character also matches its Markdown backslash escape and its
-    HTML character references (``Tartan\*``, ``A&amp;M``).
+    HTML character references (``A\*``, ``A&amp;B``).
     """
     parts = []
     for char in term:
