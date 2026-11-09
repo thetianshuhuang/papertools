@@ -46,8 +46,8 @@ def replacement_record(res: Resolution) -> Record | None:
 def _repair_names(authors: list[str], references: list[Record]) -> list[str]:
     """Take a reference's spelling where the record lost accents or case.
 
-    Repairs IEEE's dropped accents (``Dollar`` -> ``Dollár``) and
-    OpenReview's all-caps surnames (``HAZIZA`` -> ``Haziza``).
+    Repairs IEEE's dropped accents (``Novak`` -> ``Novák``) and
+    OpenReview's all-caps surnames (``SMITH`` -> ``Smith``).
     """
     best: dict[str, str] = {}
     for r in references:

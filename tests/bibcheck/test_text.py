@@ -16,8 +16,8 @@ from papertools.bibcheck.text import (
 
 def test_delatex_accents_and_symbols():
     """Decode the LaTeX accent forms Scholar and publishers emit."""
-    assert delatex(r"J{\'e}gou, Herv\'{e}") == "Jégou, Hervé"
-    assert delatex(r"G\"{o}del and Bj\"orn") == "Gödel and Björn"
+    assert delatex(r"Ren{\'e}e, Jos\'{e}") == "Renée, José"
+    assert delatex(r"M\"{u}ller and J\"org") == "Müller and Jörg"
     assert delatex(r"\L{}ukasz, Fran\c cois, Ga\v{s}per") == (
         "Łukasz, François, Gašper"
     )
@@ -26,17 +26,17 @@ def test_delatex_accents_and_symbols():
 
 def test_norm_title_ignores_case_braces_and_accents():
     """Titles compare equal across case, braces, and accents."""
-    assert norm_title("{DINO}v2: Learning") == norm_title("Dinov2: learning")
+    assert norm_title("{ABC}v2: Learning") == norm_title("Abcv2: learning")
     assert norm_title(r"Caf\'e") == norm_title("Café") == "cafe"
 
 
 @pytest.mark.parametrize(
     "name,expected",
     [
-        ("Dollár, Piotr", "Piotr Dollár"),
+        ("Novák, Jan", "Jan Novák"),
         ("Yi Wang 0001", "Yi Wang"),
         ("von Neumann, Jr, John", "John von Neumann Jr"),
-        ("Kaiming He", "Kaiming He"),
+        ("Alice Smith", "Alice Smith"),
     ],
 )
 def test_first_last(name, expected):
@@ -46,16 +46,16 @@ def test_first_last(name, expected):
 
 def test_split_authors():
     """Split on 'and' and decode accents."""
-    assert split_authors(r"Dollar, Piotr and J{\'e}gou, Herv{\'e}") == [
-        "Piotr Dollar",
-        "Hervé Jégou",
+    assert split_authors(r"Novak, Jan and Ren{\'e}e, Jos{\'e}") == [
+        "Jan Novak",
+        "José Renée",
     ]
 
 
 def test_count_accents():
     """Count diacritics and special letters."""
-    assert count_accents("Hervé Jégou") == 2
-    assert count_accents("Herve Jegou") == 0
+    assert count_accents("José Renée") == 2
+    assert count_accents("Jose Renee") == 0
     assert count_accents("Łukasz") == 1
 
 
@@ -78,7 +78,7 @@ def test_venue_family_cvpr(venue):
 def test_venue_family_others():
     """Distinguish workshops, arXiv, and unknown venues."""
     assert venue_family("CVPR Workshops") == "CVPRW"
-    assert venue_family("arXiv preprint arXiv:2301.08243") == "arXiv"
+    assert venue_family("arXiv preprint arXiv:2301.00002") == "arXiv"
     assert venue_family("Int. Conf. Learn. Represent.") == "ICLR"
     assert venue_family("Trans. Mach. Learn. Res. 2024") == "TMLR"
     assert venue_family("IEEE intelligent systems") is None
@@ -87,8 +87,8 @@ def test_venue_family_others():
 def test_protect_and_pages():
     """Brace mixed-case words; normalize page dashes."""
     assert protect("A ConvNet for the 2020s") == "A {ConvNet} for the {2020s}"
-    assert protect("{DINO}v2: Learning") == "{DINO}v2: Learning"
-    assert protect("K-Radar: 4D Radar") == "{K-Radar:} {4D} Radar"
+    assert protect("{ABC}v2: Learning") == "{ABC}v2: Learning"
+    assert protect("X-Net: 4D Example") == "{X-Net:} {4D} Example"
     assert protect("Self-Supervised Learning") == "Self-Supervised Learning"
     assert norm_pages("15979–15988") == "15979--15988"
     assert norm_pages("1 - 5") == "1--5"

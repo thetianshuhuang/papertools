@@ -93,7 +93,7 @@ class Record:
 
     @property
     def label(self) -> str:
-        """Short human-readable identifier, e.g. ``doi 10.1109/...``."""
+        """Short human-readable identifier, e.g. ``doi 10.1000/...``."""
         name = {
             "crossref": "doi",
             "arxiv": "arXiv",

@@ -4,17 +4,17 @@ import pytest
 
 from papertools.bibcheck.cli import main
 
-MAE_ENTRY = r"""@inproceedings{he2022masked,
-  title={Masked autoencoders are scalable vision learners},
-  author={He, Kaiming and Dollar, Piotr},
+PAPER_ENTRY = r"""@inproceedings{smith2022learning,
+  title={Learning example representations at scale},
+  author={Smith, Alice and Novak, Jan},
   booktitle=CVPR,
   pages={16000--16009},
   year={2022}
 }"""
-REG_ENTRY = r"""@article{darcet2023vision,
-  title={Vision transformers need registers},
-  author={Darcet, Timoth{\'e}e and Oquab, Maxime},
-  journal={arXiv preprint arXiv:2309.16588},
+PREPRINT_ENTRY = r"""@article{moreau2023example,
+  title={Example networks need placeholders},
+  author={Moreau, L{\'e}a and Garcia, Bruno},
+  journal={arXiv preprint arXiv:2309.00001},
   year={2023}
 }"""
 HEADER = (
@@ -26,22 +26,22 @@ HEADER = (
 def bib(tmp_path):
     """A small .bib with a header, an IEEE entry, and an arXiv entry."""
     path = tmp_path / "main.bib"
-    path.write_text(HEADER + MAE_ENTRY + "\n\n" + REG_ENTRY + "\n")
+    path.write_text(HEADER + PAPER_ENTRY + "\n\n" + PREPRINT_ENTRY + "\n")
     return path
 
 
 def test_report(web, bib, capsys):
     """Report pages, accent, and stale-arXiv problems; exit 1."""
-    web.crossref["Masked autoencoders are scalable vision learners"] = []
+    web.crossref["Learning example representations at scale"] = []
     assert main([str(bib)]) == 1
     out = capsys.readouterr().out
-    assert "he2022masked" in out
-    assert "accent: ours='Piotr Dollar' dblp='Piotr Dollár'" in out
+    assert "smith2022learning" in out
+    assert "accent: ours='Jan Novak' dblp='Jan Novák'" in out
     assert "pages   ours=16000--16009 crossref=15979-15988" in out
     # Found by title via DBLP, then upgraded to the publisher's DOI record.
-    assert "(doi 10.1109/cvpr52688.2022.01553, via title)" in out
+    assert "(doi 10.1000/example.2022.00001, via title)" in out
     assert (
-        "published version exists: ICLR 2024 oral (openreview 2dnO3LLiJ1)"
+        "published version exists: ICLR 2024 oral (openreview abcdEFGH12)"
         in out
     )
     assert "Checked 2 entries: 2 with warnings" in out
@@ -51,14 +51,14 @@ def test_doi_takes_priority_over_title(web, tmp_path, capsys):
     """An entry's DOI is looked up directly instead of searching Crossref."""
     path = tmp_path / "a.bib"
     path.write_text(
-        MAE_ENTRY.replace(
-            "year={2022}", "year={2022}, doi={10.1109/cvpr52688.2022.01553}"
+        PAPER_ENTRY.replace(
+            "year={2022}", "year={2022}, doi={10.1000/example.2022.00001}"
         )
     )
     main([str(path)])
     assert "api.crossref.org" not in web.calls
     assert (
-        "(doi 10.1109/cvpr52688.2022.01553, via doi)" in capsys.readouterr().out
+        "(doi 10.1000/example.2022.00001, via doi)" in capsys.readouterr().out
     )
 
 
@@ -80,14 +80,14 @@ def test_rejected_openreview_submission_is_not_a_publication(
 def test_fix_rewrites_only_flagged_entries(web, bib, capsys):
     """--fix rebuilds entries, repairs accents, and keeps other bytes."""
     original = bib.read_text()
-    web.crossref["Masked autoencoders are scalable vision learners"] = []
+    web.crossref["Learning example representations at scale"] = []
     assert main([str(bib), "--fix"]) == 1
     out = capsys.readouterr().out
-    assert "Fixed 2: he2022masked, darcet2023vision" in out
+    assert "Fixed 2: smith2022learning, moreau2023example" in out
     assert bib.with_name("main.bib.bak").read_text() == original
     text = bib.read_text()
     assert text.startswith(HEADER)
-    assert "author={He, Kaiming and Dollár, Piotr}" in text
+    assert "author={Smith, Alice and Novák, Jan}" in text
     assert "pages={15979--15988}" in text
     assert "booktitle={The Twelfth International Conference on Learning" in text
     assert "arXiv preprint" not in text
@@ -98,7 +98,7 @@ def test_fix_rewrites_only_flagged_entries(web, bib, capsys):
 def test_source_failure_does_not_abort(web, bib, capsys):
     """One dead source is reported, and the other entries still get checked."""
     web.down.add("export.arxiv.org")
-    web.crossref["Masked autoencoders are scalable vision learners"] = []
+    web.crossref["Learning example representations at scale"] = []
     assert main([str(bib)]) == 1
     captured = capsys.readouterr()
     assert "export.arxiv.org: HTTP 503" in captured.err
@@ -107,17 +107,19 @@ def test_source_failure_does_not_abort(web, bib, capsys):
 
 def test_keys_filter(web, bib, capsys):
     """--keys checks only the named entries and rejects unknown ones."""
-    main([str(bib), "--keys", "darcet2023vision"])
-    assert "he2022masked" not in capsys.readouterr().out
+    main([str(bib), "--keys", "moreau2023example"])
+    assert "smith2022learning" not in capsys.readouterr().out
     assert main([str(bib), "--keys", "nope"]) == 2
 
 
 def test_duplicates(web, tmp_path, capsys):
     """Duplicate keys and duplicate titles are flagged."""
     path = tmp_path / "a.bib"
-    path.write_text(REG_ENTRY + "\n" + REG_ENTRY.replace("darcet2023", "d2"))
+    path.write_text(
+        PREPRINT_ENTRY + "\n" + PREPRINT_ENTRY.replace("moreau2023", "d2")
+    )
     main([str(path)])
-    assert "same paper as d2vision" in capsys.readouterr().out
+    assert "same paper as d2example" in capsys.readouterr().out
 
 
 def test_errors_and_version(tmp_path, capsys):
@@ -179,8 +181,8 @@ def test_openreview_v1_records_are_found(web, tmp_path, capsys):
 
 def test_quiet_output(web, bib, capsys):
     """No per-entry progress off a terminal; notes only with --notes."""
-    web.crossref["Masked autoencoders are scalable vision learners"] = []
-    main([str(bib), "--keys", "darcet2023vision"])
+    web.crossref["Learning example representations at scale"] = []
+    main([str(bib), "--keys", "moreau2023example"])
     captured = capsys.readouterr()
     assert "[1/1]" not in captured.err
     assert "note" not in captured.out
@@ -188,7 +190,7 @@ def test_quiet_output(web, bib, capsys):
         [
             str(bib),
             "--keys",
-            "darcet2023vision",
+            "moreau2023example",
             "--notes",
             "--case",
             "sentence",

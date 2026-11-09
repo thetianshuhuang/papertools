@@ -56,6 +56,6 @@ def test_malformed_input(text):
 
 def test_format_round_trip():
     """Formatted entries parse back to the same fields."""
-    fields = {"title": "{DINO}v2", "year": "2024"}
+    fields = {"title": "{ABC}v2", "year": "2024"}
     e = parse_entry(format_entry("article", "k", fields))
     assert (e.type, e.key, e.fields) == ("article", "k", fields)

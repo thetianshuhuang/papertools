@@ -9,22 +9,22 @@ from papertools.bibcheck.resolve import (
 )
 from papertools.bibcheck.sources import Record
 
-MAE = Record(
+PAPER = Record(
     source="crossref",
-    id="10.1109/cvpr52688.2022.01553",
-    title="Masked Autoencoders Are Scalable Vision Learners",
-    authors=["Kaiming He", "Piotr Dollar"],
+    id="10.1000/example.2022.00001",
+    title="Learning Example Representations at Scale",
+    authors=["Alice Smith", "Jan Novak"],
     venue="2022 IEEE/CVF Conference on Computer Vision and Pattern "
     "Recognition (CVPR)",
     year="2022",
     pages="15979-15988",
-    doi="10.1109/cvpr52688.2022.01553",
+    doi="10.1000/example.2022.00001",
 )
-MAE_DBLP = Record(
+PAPER_DBLP = Record(
     source="dblp",
     id="x",
-    title=MAE.title,
-    authors=["Kaiming He", "Piotr Dollár"],
+    title=PAPER.title,
+    authors=["Alice Smith", "Jan Novák"],
 )
 
 
@@ -35,14 +35,14 @@ def entry(**fields):
 
 
 def good(**override):
-    """A correct MAE entry, with overrides."""
+    """A correct entry, with overrides."""
     fields = {
-        "title": "Masked Autoencoders Are Scalable Vision Learners",
-        "author": r"He, Kaiming and Doll{\'a}r, Piotr",
+        "title": "Learning Example Representations at Scale",
+        "author": r"Smith, Alice and Nov{\'a}k, Jan",
         "booktitle": "IEEE Conf. Comput. Vis. Pattern Recog.",
         "pages": "15979--15988",
         "year": "2022",
-        "doi": "10.1109/cvpr52688.2022.01553",
+        "doi": "10.1000/example.2022.00001",
     }
     fields.update(override)
     return entry(**fields)
@@ -54,8 +54,8 @@ def kinds(issues, level=None):
 
 
 def resolution(**kwargs):
-    """A resolution whose primary is MAE unless overridden."""
-    kwargs.setdefault("primary", MAE)
+    """A resolution whose primary is PAPER unless overridden."""
+    kwargs.setdefault("primary", PAPER)
     kwargs.setdefault("published", kwargs["primary"])
     kwargs.setdefault("via", "doi")
     return Resolution(**kwargs)
@@ -63,7 +63,7 @@ def resolution(**kwargs):
 
 def test_clean_entry_has_no_issues():
     """Macro venue spelling and the accented name are not flagged."""
-    assert check(good(), resolution(references=[MAE_DBLP])) == []
+    assert check(good(), resolution(references=[PAPER_DBLP])) == []
 
 
 def test_missing_and_bad_doi():
@@ -79,14 +79,14 @@ def test_source_errors_are_not_reported_as_missing():
 
 def test_title_differs_and_capitalization():
     """Garbled titles and lost capitals are warnings; unbraced is a note."""
-    rec = Record(source="crossref", id="d", title="VideoMAE: Masked Models")
+    rec = Record(source="crossref", id="d", title="ExampleNet: Masked Models")
     res = resolution(primary=rec)
-    assert kinds(check(entry(title="Videomae: masked models"), res), WARN)[
+    assert kinds(check(entry(title="Examplenet: masked models"), res), WARN)[
         0
     ] == (WARN, "title")
-    issues = check(entry(title="VideoMAE: masked models"), res)
+    issues = check(entry(title="ExampleNet: masked models"), res)
     assert (NOTE, "title") in kinds(issues)
-    issues = check(entry(title="{VideoMAE}: masked models"), res)
+    issues = check(entry(title="{ExampleNet}: masked models"), res)
     assert (NOTE, "title") not in kinds(issues)
     issues = check(entry(title="Masked Models"), res)
     assert issues[0].message.startswith("differs")
@@ -113,15 +113,15 @@ def test_leading_system_name():
     rec = Record(
         source="crossref",
         id="d",
-        title="K-Radar: 4D Radar Detection",
+        title="X-Net: 4D Example Detection",
         authors=["B A"],
     )
     issues = check(
-        entry(title="K-radar: 4d radar detection", author="A, B"),
+        entry(title="X-net: 4d example detection", author="A, B"),
         resolution(primary=rec),
     )
     assert [i.message for i in issues] == [
-        "capitalization: 'K-radar' should be {K-Radar}",
+        "capitalization: 'X-net' should be {X-Net}",
         "capitalization: '4d' should be {4D}",
     ]
     # Hyphenated words elsewhere are ordinary title case.
@@ -143,15 +143,15 @@ def test_leading_system_name():
 def test_authors_accent_truncation_and_mismatch():
     """Each author problem is reported with the source that disagrees."""
     issues = check(
-        good(author="He, Kaiming and Dollar, Piotr"),
-        resolution(references=[MAE_DBLP]),
+        good(author="Smith, Alice and Novak, Jan"),
+        resolution(references=[PAPER_DBLP]),
     )
     assert [i.message for i in issues] == [
-        "accent: ours='Piotr Dollar' dblp='Piotr Dollár'"
+        "accent: ours='Jan Novak' dblp='Jan Novák'"
     ]
-    issues = check(good(author="He, Kaiming and others"), resolution())
+    issues = check(good(author="Smith, Alice and others"), resolution())
     assert "truncated" in issues[0].message
-    issues = check(good(author="He, Kaiming and Doe, Piotr"), resolution())
+    issues = check(good(author="Smith, Alice and Doe, Jan"), resolution())
     assert kinds(issues) == [(WARN, "author")]
     assert "mismatch" in issues[0].message
 
@@ -161,12 +161,12 @@ def test_reference_only_differences_are_notes():
     arxiv = Record(
         source="arxiv",
         id="1",
-        title=MAE.title,
-        authors=["Piotr Dollar", "Kaiming He"],
+        title=PAPER.title,
+        authors=["Jan Novak", "Alice Smith"],
         preprint=True,
     )
     issues = check(
-        good(author="He, Kaiming and Dollar, Piotr"),
+        good(author="Smith, Alice and Novak, Jan"),
         resolution(references=[arxiv]),
     )
     assert kinds(issues) == [(NOTE, "author")]
@@ -175,11 +175,11 @@ def test_reference_only_differences_are_notes():
 def test_middle_initials_and_nicknames():
     """Initials are fine; different given names are only a note."""
     rec = Record(
-        source="crossref", id="d", title="T", authors=["Emmanuel J. Candès"]
+        source="crossref", id="d", title="T", authors=["Émile J. Fabrès"]
     )
     res = resolution(primary=rec)
-    assert check(entry(title="T", author=r"Cand\`es, Emmanuel"), res) == []
-    issues = check(entry(title="T", author=r"Cand\`es, Manny"), res)
+    assert check(entry(title="T", author=r"Fabr\`es, \'Emile"), res) == []
+    issues = check(entry(title="T", author=r"Fabr\`es, Milo"), res)
     assert kinds(issues) == [(NOTE, "author")]
 
 
@@ -230,17 +230,17 @@ def test_scholar_artifacts_on_iclr():
 def test_arxiv_entries():
     """Stale arXiv citations, from a record or from Semantic Scholar."""
     e = parse_entry(
-        "@article{k, title={Masked Autoencoders Are Scalable Vision Learners},"
-        " author={He, Kaiming and Dollár, Piotr},"
-        " journal={arXiv preprint arXiv:2111.06377}, year={2021}}"
+        "@article{k, title={Learning Example Representations at Scale},"
+        " author={Smith, Alice and Novák, Jan},"
+        " journal={arXiv preprint arXiv:2111.00003}, year={2021}}"
     )
     assert is_preprint_entry(e)
-    assert entry_arxiv_id(e) == "2111.06377"
-    preprint = Record(**{**MAE.__dict__, "source": "arxiv", "preprint": True})
-    issues = check(e, resolution(primary=preprint, published=MAE))
+    assert entry_arxiv_id(e) == "2111.00003"
+    preprint = Record(**{**PAPER.__dict__, "source": "arxiv", "preprint": True})
+    issues = check(e, resolution(primary=preprint, published=PAPER))
     assert kinds(issues) == [(WARN, "arxiv")]
     hint = Record(
-        source="s2", id="s", title=MAE.title, venue="ICML", year="2020"
+        source="s2", id="s", title=PAPER.title, venue="ICML", year="2020"
     )
     issues = check(e, resolution(primary=preprint, published=None, hint=hint))
     assert "Semantic Scholar" in issues[0].message
@@ -251,14 +251,14 @@ def test_arxiv_entries():
 def test_arxiv_id_forms():
     """Find arXiv ids in the places Scholar and DBLP put them."""
     for field in [
-        "eprint={2301.08243}",
-        "journal={arXiv preprint arXiv:2301.08243}",
-        "url={https://arxiv.org/abs/2301.08243v2}",
-        "volume={abs/2301.08243}",
-        "doi={10.48550/arXiv.2301.08243}",
+        "eprint={2301.00002}",
+        "journal={arXiv preprint arXiv:2301.00002}",
+        "url={https://arxiv.org/abs/2301.00002v2}",
+        "volume={abs/2301.00002}",
+        "doi={10.48550/arXiv.2301.00002}",
     ]:
         e = parse_entry(f"@misc{{k, {field}}}")
-        assert entry_arxiv_id(e) == "2301.08243", field
+        assert entry_arxiv_id(e) == "2301.00002", field
 
 
 def test_csl_subtitle_and_print_year():

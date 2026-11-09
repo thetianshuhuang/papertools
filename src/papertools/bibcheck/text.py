@@ -35,7 +35,7 @@ _LETTERS = str.maketrans(
 
 
 def shouting(name: str) -> bool:
-    """Whether a name has an all-caps word, e.g. ``Daniel HAZIZA``."""
+    """Whether a name has an all-caps word, e.g. ``Alice SMITH``."""
     return any(len(w) > 2 and w.isalpha() and w.isupper() for w in name.split())
 
 
@@ -90,8 +90,8 @@ def norm_pages(pages: str) -> str:
 def protect(title: str, proper: tuple[str, ...] = ()) -> str:
     """Brace words that a sentence-casing ``.bst`` would mangle.
 
-    That is, words with internal capitals (VideoMAE), letter-digit mixes
-    (DINOv2), a leading name before a colon (K-Radar:), and the given proper
+    That is, words with internal capitals (ExampleNet), letter-digit mixes
+    (ABCv2), a leading name before a colon (X-Net:), and the given proper
     nouns.
     """
 
@@ -116,7 +116,7 @@ def needs_protection(word: str, *, leading: bool = False) -> bool:
     """Whether ``word`` has capitals a sentence-casing style would lose.
 
     With ``leading``, ``word`` is the title's first word; if it ends with a
-    colon it names the paper's system (K-Radar:, ColoRadar:), so every capital
+    colon it names the paper's system (X-Net:, ExampleNet:), so every capital
     after the first letter counts, including after hyphens.
     """
     core = word.strip(",.?!;()")

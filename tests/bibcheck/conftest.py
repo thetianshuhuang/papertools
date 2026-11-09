@@ -9,57 +9,57 @@ from papertools.bibcheck import cli
 from papertools.bibcheck.sources import NotFoundError, SourceError
 from papertools.bibcheck.text import norm_title
 
-MAE_CSL = {
-    "DOI": "10.1109/cvpr52688.2022.01553",
+PAPER_CSL = {
+    "DOI": "10.1000/example.2022.00001",
     "type": "paper-conference",
-    "title": "Masked Autoencoders Are Scalable Vision Learners",
+    "title": "Learning Example Representations at Scale",
     "container-title": "2022 IEEE/CVF Conference on Computer Vision and "
     "Pattern Recognition (CVPR)",
     "issued": {"date-parts": [[2022, 6]]},
     "page": "15979-15988",
     "author": [
-        {"given": "Kaiming", "family": "He"},
-        {"given": "Piotr", "family": "Dollar"},
+        {"given": "Alice", "family": "Smith"},
+        {"given": "Jan", "family": "Novak"},
     ],
 }
-MAE_BIBTEX = (
-    " @inproceedings{He_2022, title={Masked Autoencoders Are Scalable Vision"
-    " Learners}, url={http://dx.doi.org/10.1109/cvpr52688.2022.01553},"
-    " DOI={10.1109/cvpr52688.2022.01553}, booktitle={2022 IEEE/CVF Conference"
+PAPER_BIBTEX = (
+    " @inproceedings{Smith_2022, title={Learning Example Representations at"
+    " Scale}, url={http://dx.doi.org/10.1000/example.2022.00001},"
+    " DOI={10.1000/example.2022.00001}, booktitle={2022 IEEE/CVF Conference"
     " on Computer Vision and Pattern Recognition (CVPR)}, publisher={IEEE},"
-    " author={He, Kaiming and Dollar, Piotr}, year={2022}, month=June,"
+    " author={Smith, Alice and Novak, Jan}, year={2022}, month=June,"
     " pages={15979–15988} }"
 )
-MAE_DBLP_NOTE = {
-    "id": "dblpMAE",
+PAPER_DBLP_NOTE = {
+    "id": "dblpPAPER",
     "content": {
-        "title": {"value": "Masked Autoencoders Are Scalable Vision Learners"},
+        "title": {"value": "Learning Example Representations at Scale"},
         "venue": {"value": "CVPR 2022"},
         "venueid": {"value": "dblp.org/conf/CVPR/2022"},
-        "authors": {"value": ["Kaiming He", "Piotr Dollár"]},
+        "authors": {"value": ["Alice Smith", "Jan Novák"]},
         "_bibtex": {
-            "value": "@inproceedings{DBLP:conf/cvpr/HeD22,\n"
-            "  author={Kaiming He and Piotr Dollár},\n"
-            "  title={Masked Autoencoders Are Scalable Vision Learners},\n"
+            "value": "@inproceedings{DBLP:conf/cvpr/SmithN22,\n"
+            "  author={Alice Smith and Jan Novák},\n"
+            "  title={Learning Example Representations at Scale},\n"
             "  year={2022},\n  pages={15979-15988},\n"
-            "  url={https://doi.org/10.1109/CVPR52688.2022.01553},\n"
+            "  url={https://doi.org/10.1000/EXAMPLE.2022.00001},\n"
             "  booktitle={CVPR}\n}"
         },
     },
 }
-REG_TITLE = "Vision Transformers Need Registers"
-REG_NOTE = {
-    "id": "2dnO3LLiJ1",
+PREPRINT_TITLE = "Example Networks Need Placeholders"
+PREPRINT_NOTE = {
+    "id": "abcdEFGH12",
     "pdate": 1705410880910,
     "content": {
-        "title": {"value": REG_TITLE},
+        "title": {"value": PREPRINT_TITLE},
         "venue": {"value": "ICLR 2024 oral"},
         "venueid": {"value": "ICLR.cc/2024/Conference"},
-        "authors": {"value": ["Timothée Darcet", "Maxime Oquab"]},
+        "authors": {"value": ["Léa Moreau", "Bruno Garcia"]},
         "_bibtex": {
-            "value": "@inproceedings{darcet2024vision,\n"
-            "title={Vision Transformers Need Registers},\n"
-            "author={Timoth{\\'e}e Darcet and Maxime Oquab},\n"
+            "value": "@inproceedings{moreau2024example,\n"
+            "title={Example Networks Need Placeholders},\n"
+            "author={L{\\'e}a Moreau and Bruno Garcia},\n"
             "booktitle={The Twelfth International Conference on Learning "
             "Representations},\nyear={2024}\n}"
         },
@@ -90,12 +90,14 @@ def atom(aid: str, title: str, authors: list[str], doi: str = "") -> str:
 
 
 EMPTY_FEED = '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
-REG_ATOM = atom("2309.16588", REG_TITLE, ["Timothée Darcet", "Maxime Oquab"])
-REG_DATACITE = (
-    "@misc{https://doi.org/10.48550/arxiv.2309.16588,\n"
-    "  doi = {10.48550/ARXIV.2309.16588},\n"
-    "  author = {Darcet, Timothée and Oquab, Maxime},\n"
-    "  title = {Vision Transformers Need Registers},\n"
+PREPRINT_ATOM = atom(
+    "2309.00001", PREPRINT_TITLE, ["Léa Moreau", "Bruno Garcia"]
+)
+PREPRINT_DATACITE = (
+    "@misc{https://doi.org/10.48550/arxiv.2309.00001,\n"
+    "  doi = {10.48550/ARXIV.2309.00001},\n"
+    "  author = {Moreau, Léa and Garcia, Bruno},\n"
+    "  title = {Example Networks Need Placeholders},\n"
     "  publisher = {arXiv},\n  year = {2023}\n}"
 )
 
@@ -115,17 +117,19 @@ class FakeWeb:
         self.calls: list[str] = []
         self.down: set[str] = set()
         self.dois = {
-            "10.1109/cvpr52688.2022.01553": (MAE_CSL, MAE_BIBTEX),
-            "10.48550/arxiv.2309.16588": (None, REG_DATACITE),
+            "10.1000/example.2022.00001": (PAPER_CSL, PAPER_BIBTEX),
+            "10.48550/arxiv.2309.00001": (None, PREPRINT_DATACITE),
         }
         self.openreview = {
-            "Masked Autoencoders Are Scalable Vision Learners": [MAE_DBLP_NOTE],
-            REG_TITLE: [REG_NOTE, REJECTED_NOTE],
+            "Learning Example Representations at Scale": [PAPER_DBLP_NOTE],
+            PREPRINT_TITLE: [PREPRINT_NOTE, REJECTED_NOTE],
             "Rejected Paper About Things": [REJECTED_NOTE],
         }
         self.openreview_v1: dict[str, list[dict]] = {}
-        self.arxiv_ids = {"2309.16588": REG_ATOM}
-        self.arxiv_titles = {"Vision Transformers Need Registers": REG_ATOM}
+        self.arxiv_ids = {"2309.00001": PREPRINT_ATOM}
+        self.arxiv_titles = {
+            "Example Networks Need Placeholders": PREPRINT_ATOM
+        }
         self.crossref: dict[str, list[dict]] = {}
         self.s2: dict[str, dict] = {}
 
