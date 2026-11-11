@@ -8,6 +8,7 @@ Small command-line tools for preparing papers.
 | [`gs2pdf`](#gs2pdf) | Download Google Slides diagrams as transparent, tightly cropped PDFs. |
 | [`anondoc`](#anondoc) | Anonymize a documentation site (e.g., MkDocs or Zensical) for double-blind review. |
 | [`texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
+| [`overleaf-push`](#overleaf-push) | Push to Overleaf's git bridge, retrying while coauthors are editing online. |
 
 ## Install
 
@@ -149,6 +150,26 @@ The abstract is read from `\begin{abstract}...\end{abstract}`, or `\abstract{...
 - **Math** (`--math unicode`, the default) becomes Unicode where possible, e.g., `$\alpha \le 10^{-3}$` → `α ≤ 10⁻³`. With `--math tex`, math is kept as `$...$`, with the paper's macros expanded inside it.
 
 Anything else is dropped with an `unknown macro` warning, keeping its argument's text. Check the warnings before pasting.
+
+## overleaf-push
+
+Push to an Overleaf project's git remote while coauthors are editing it. Overleaf turns online edits into commits, so a push made while someone is typing is usually rejected, and the manual fix (commit, `git pull --rebase`, push, repeat) has to be timed to a pause in their typing. `overleaf-push` does that loop for you:
+
+```bash
+overleaf-push                        # commit any changes, then rebase and push until it lands
+overleaf-push -m "Rewrite intro"     # commit message (default: "Update from <hostname>")
+overleaf-push --timeout 1800         # keep trying for up to 30 minutes (default 15)
+```
+
+Uncommitted changes are committed first with `git add -A` (which respects `.gitignore`). Each attempt fetches the upstream branch, rebases your commits onto it, and pushes; nothing is ever force-pushed. Attempts come in bursts of `--burst` (default 5), up to a second apart, to catch a pause in someone's typing. After each failed burst it waits about 5, 10, 20, 40, then 60 seconds, so a long editing session is outlasted without hammering the server.
+
+It stops instead of retrying when retrying cannot help:
+
+- **Conflicts**: if your commits and an online edit change the same lines, the rebase is aborted (your commits are left as they were) and the conflicting files are listed. Run `git pull --rebase`, resolve them, `git rebase --continue`, and rerun.
+- **Authentication and access errors**, printed as git reported them.
+- **Repository state**: a detached HEAD, or a rebase, merge, or cherry-pick in progress (exit status 2).
+
+It exits 0 once pushed (or if there is nothing to push), and 1 on a conflict, an error, or after `--timeout` seconds. On timeout your commits are already rebased, so rerunning is safe.
 
 ## Development
 
