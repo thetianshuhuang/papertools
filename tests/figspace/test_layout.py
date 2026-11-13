@@ -98,3 +98,19 @@ def test_stop_beyond_page_limit_is_ignored(paper):
     result = _read(doc.save(), page_limit=1)
     assert result.stop is None
     assert sorted(result.rows) == [0]
+
+
+def test_gutter_with_full_width_body_lines(paper):
+    """Find the gutter even when many body-size lines span both columns.
+
+    Some templates, such as IEEE VGTC, set captions at body size, and every
+    full-width caption crosses the gutter.
+    """
+    doc = paper()
+    for _ in range(3):
+        doc.new_page()
+        end = doc.paragraph(None, doc.TOP + 10.5, doc.TOP + 60)
+        doc.text(0, end + 10, doc.BOTTOM)
+        doc.text(1, end + 10, doc.BOTTOM)
+    layout = _read(doc.save()).layout
+    assert layout.gutter == pytest.approx((297, 315), abs=1)

@@ -196,3 +196,32 @@ def test_figure_reference_in_text_is_not_a_caption(paper):
     doc.plain_pages(1)
     doc.page.insert_text((doc.LEFT, 300), "Figure 3 shows the results.")
     assert measure(doc.save()).floats == []
+
+
+def test_table_caption_below_above_figure(paper):
+    """Grow a table up from its caption when below it is another float.
+
+    Some templates put table captions below the table; growing down would
+    take the next figure, which ends at its own caption.
+    """
+    doc = paper()
+    doc.new_page()
+    doc.rule(None, doc.TOP + 2)
+    for i in range(5):
+        y = doc.TOP + 14 + 12 * i
+        doc.page.insert_text((100, y), "Model", fontsize=8)
+        doc.page.insert_text((400, y), "0.42", fontsize=8)
+    doc.rule(None, doc.TOP + 66)
+    table_end = doc.caption(None, doc.TOP + 72, "Table 1:")
+    graphic_top = table_end + 12
+    doc.graphic(None, graphic_top, 400)
+    figure_end = doc.caption(None, 410, "Figure 1:")
+    doc.text(0, figure_end + 20, doc.BOTTOM)
+    doc.text(1, figure_end + 20, doc.BOTTOM)
+    doc.plain_pages(1)
+    table, figure = measure(doc.save()).floats
+    assert table.label == "Table 1" and table.found
+    assert (table.region.y0, table.region.y1) == pytest.approx(
+        (doc.TOP + 2, table_end), abs=1.5
+    )
+    assert figure.region.y0 == pytest.approx(graphic_top, abs=1.5)

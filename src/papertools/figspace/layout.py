@@ -204,7 +204,11 @@ def _gutter(pages: list[list[Fragment]]) -> float | None:
         total += coverage[x]
         coverage[x] = total
     width = right - left
-    threshold = max(1, len(lines) // 50)
+    # Full-width lines, such as captions set at body size, cross the gutter,
+    # so it is found relative to the columns on either side: nearly empty
+    # next to them, where the middle of a single column is nearly as full.
+    peak = min(max(coverage[: width // 2]), max(coverage[width // 2 :]))
+    threshold = max(1, peak // 10)
     best: tuple[int, int] | None = None
     start = None
     for x in range(int(width * 0.3), int(width * 0.7) + 1):

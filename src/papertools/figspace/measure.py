@@ -168,7 +168,7 @@ def _grow(
     *,
     up: bool,
     body_size: float,
-) -> tuple[float, bool]:
+) -> tuple[float, bool, bool]:
     """Extend a float from its caption through adjacent content.
 
     Graphics and other text are added up to a gap of two lines, such as the
@@ -177,10 +177,12 @@ def _grow(
     lines are only kept if a graphic or other text follows them closely, as
     in a table with body-size text between rules.
 
-    Returns the far edge of the float and whether any graphic was added.
+    Returns the far edge of the float, whether any graphic was added, and
+    whether it ran into another caption, so that the content added may be
+    that caption's float instead.
     """
     sign = -1 if up else 1
-    edge = caption.y0 if up else caption.y1
+    edge = start = caption.y0 if up else caption.y1
 
     def near(rect: pymupdf.Rect) -> float:
         return rect.y1 if up else rect.y0
@@ -207,7 +209,7 @@ def _grow(
         gap = sign * (near(item.rect) - current)
         if item.kind == "caption":
             if gap >= 0:
-                break
+                return edge, found, gap <= content_gap and edge != start
             continue
         limit = (
             body_gap
@@ -223,7 +225,7 @@ def _grow(
         else:
             edge, pending = extended, None
             found |= item.kind == "graphic"
-    return edge, found
+    return edge, found, False
 
 
 def _page_floats(document: Document, index: int) -> list[Float]:
@@ -270,17 +272,27 @@ def _page_floats(document: Document, index: int) -> list[Float]:
         label = f"{kind.capitalize()} {match[2]}"
         # Table captions usually sit above the table, figure captions below.
         order = (False, True) if kind == "table" else (True, False)
-        top, bottom, found = rect.y0, rect.y1, False
+        # The usual side is tried first. If what it finds runs into another
+        # caption, it is likely that caption's float (as when a template puts
+        # table captions below), so content on the other side is preferred.
+        top, bottom = rect.y0, rect.y1
+        sides = []
         for up in order:
-            edge, found = _grow(rect, items, up=up, body_size=layout.body_size)
+            edge, graphic, blocked = _grow(
+                rect, items, up=up, body_size=layout.body_size
+            )
             extent = abs(edge - (rect.y0 if up else rect.y1))
-            if found or extent >= 1.5 * layout.body_size:
-                if up:
-                    top = edge
-                else:
-                    bottom = edge
-                found = True
-                break
+            if graphic or extent >= 1.5 * layout.body_size:
+                sides.append((blocked, up, edge))
+                if not blocked:
+                    break
+        found = bool(sides)
+        if sides:
+            _, up, edge = min(sides, key=lambda side: side[0])
+            if up:
+                top = edge
+            else:
+                bottom = edge
         area = layout.text_area
         region = pymupdf.Rect(
             span.x0, max(top, area.y0), span.x1, min(bottom, area.y1)
