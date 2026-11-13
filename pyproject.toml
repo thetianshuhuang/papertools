@@ -19,6 +19,7 @@ gs2pdf = "papertools.gs2pdf.cli:main"
 anondoc = "papertools.anondoc.cli:main"
 texabstract = "papertools.texabstract.cli:main"
 overleaf-push = "papertools.overleaf_push.cli:main"
+figspace = "papertools.figspace.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]

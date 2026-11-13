@@ -9,6 +9,7 @@ Small command-line tools for preparing papers.
 | [`anondoc`](#anondoc) | Anonymize a documentation site (e.g., MkDocs or Zensical) for double-blind review. |
 | [`texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
 | [`overleaf-push`](#overleaf-push) | Push to Overleaf's git bridge, retrying while coauthors are editing online. |
+| [`figspace`](#figspace) | Estimate how much of a paper's main body its figures and tables take up. |
 
 ## Install
 
@@ -170,6 +171,37 @@ It stops instead of retrying when retrying cannot help:
 - **Repository state**: a detached HEAD, or a rebase, merge, or cherry-pick in progress (exit status 2).
 
 It exits 0 once pushed (or if there is nothing to push), and 1 on a conflict, an error, or after `--timeout` seconds. On timeout your commits are already rebased, so rerunning is safe.
+
+## figspace
+
+Estimate how much of a paper's main body is taken up by figures and tables, to see where space can be saved before a page limit.
+
+```bash
+figspace main.pdf                        # stop at References or the LLM Usage Statement
+figspace main.pdf --page-limit 8         # count at most 8 pages
+figspace main.pdf --annotate check.pdf   # also write a copy with the measured regions shaded
+```
+
+```
+page  float       width  pages
+   1  Figure 1    full    0.37
+   2  Figure 2    column  0.14
+   5  Table 1     column  0.11
+...
+Body:    9.00 pages (pages 1–9; stopped at "LLM Usage Statement" on page 10)
+Figures: 2.50 pages (27.8% of the body)
+Tables:  0.11 pages (1.2% of the body)
+Total:   2.61 pages (29.0% of the body)
+```
+
+Space is measured in pages of the text area, the region inside the margins, which is found from where the body text sits on most pages. Running headers, page numbers, and review line numbers are left out.
+
+- **Floats** are found from their captions: lines starting with `Figure 3.`, `Fig. 3:`, `Table 2:`, or `TABLE II`. Each float runs from its caption through the graphics and text next to it, such as subfigure labels and table rows, and ends at body text, headings, or another caption. Figure captions are assumed to be below the figure and table captions above the table, with the other side tried if nothing is found.
+- **Width:** a float takes the full width of its column, since text cannot flow beside it, or the full text width if its caption spans both columns. The space between a float and the text around it is not counted.
+- **Totals** count overlapping floats, such as side-by-side figures, once.
+- **End of the main body:** counting stops at the first heading reading `References`, `Bibliography`, `LLM Usage Statement`, or `The Use of Large Language Models (LLMs)` (optionally numbered), or after `--page-limit` pages, whichever comes first. The part of the stop page before the heading is counted, in reading order: in two columns, a heading in the right column counts all of the left column. If neither is found, every page is counted, with a warning.
+
+The measurements are heuristic. Use `--annotate` to check them: it shades figures blue and tables orange, outlines the counted text area, and marks the end of the main body in red. A caption whose float could not be found is counted alone, with a warning. Floats without a numbered caption, such as algorithms or `wrapfigure`s, are not detected.
 
 ## Development
 
