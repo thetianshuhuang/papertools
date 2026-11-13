@@ -101,4 +101,4 @@ def figspace(
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    return run(figspace, "figspace", argv)
+    return run(figspace, "pt figspace", argv)

@@ -63,4 +63,4 @@ def overleaf_push(
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    return run(overleaf_push, "overleaf-push", argv)
+    return run(overleaf_push, "pt overleaf-push", argv)

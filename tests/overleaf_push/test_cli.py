@@ -59,4 +59,4 @@ def test_help_and_version(capsys):
     out = capsys.readouterr().out
     assert "overleaf-push" in out and "-m" in out
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "overleaf-push 0.1.0"
+    assert capsys.readouterr().out.strip() == "pt overleaf-push 0.1.0"

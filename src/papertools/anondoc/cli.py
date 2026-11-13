@@ -97,4 +97,4 @@ def anondoc(
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    return run(anondoc, "anondoc", argv)
+    return run(anondoc, "pt anondoc", argv)

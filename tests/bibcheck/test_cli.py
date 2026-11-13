@@ -131,7 +131,7 @@ def test_errors_and_version(tmp_path, capsys):
     assert "line 1" in capsys.readouterr().err
     assert main([str(bad), "--timeout", "0"]) == 2
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "bibcheck 0.1.0"
+    assert capsys.readouterr().out.strip() == "pt bibcheck 0.1.0"
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2

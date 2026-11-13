@@ -93,4 +93,4 @@ def test_cli_invalid_arguments(argv):
 def test_cli_version(capsys):
     """Print the version."""
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.startswith("figspace ")
+    assert capsys.readouterr().out.startswith("pt figspace ")

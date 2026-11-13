@@ -36,4 +36,4 @@ def texabstract(source: Path, /, *, math: MathMode = "unicode") -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    return run(texabstract, "texabstract", argv)
+    return run(texabstract, "pt texabstract", argv)

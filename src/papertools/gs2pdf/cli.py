@@ -61,4 +61,4 @@ def gs2pdf(
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command and return its exit status."""
-    return run(gs2pdf, "gs2pdf", argv)
+    return run(gs2pdf, "pt gs2pdf", argv)

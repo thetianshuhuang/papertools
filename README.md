@@ -1,15 +1,15 @@
 # papertools
 
-Small command-line tools for preparing papers.
+Small command-line tools for preparing papers, run as subcommands of `pt`.
 
 | Command | Description |
 | --- | --- |
-| [`bibcheck`](#bibcheck) | Check a `.bib` file against Crossref, arXiv, OpenReview, and DBLP. |
-| [`gs2pdf`](#gs2pdf) | Download Google Slides diagrams as transparent, tightly cropped PDFs. |
-| [`anondoc`](#anondoc) | Anonymize a documentation site (e.g., MkDocs or Zensical) for double-blind review. |
-| [`texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
-| [`overleaf-push`](#overleaf-push) | Push to Overleaf's git bridge, retrying while coauthors are editing online. |
-| [`figspace`](#figspace) | Estimate how much of a paper's main body its figures and tables take up. |
+| [`pt bibcheck`](#bibcheck) | Check a `.bib` file against Crossref, arXiv, OpenReview, and DBLP. |
+| [`pt gs2pdf`](#gs2pdf) | Download Google Slides diagrams as transparent, tightly cropped PDFs. |
+| [`pt anondoc`](#anondoc) | Anonymize a documentation site (e.g., MkDocs or Zensical) for double-blind review. |
+| [`pt texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
+| [`pt overleaf-push`](#overleaf-push) | Push to Overleaf's git bridge, retrying while coauthors are editing online. |
+| [`pt figspace`](#figspace) | Estimate how much of a paper's main body its figures and tables take up. |
 
 ## Install
 
@@ -19,16 +19,16 @@ With [uv](https://docs.astral.sh/uv/getting-started/installation/):
 uv tool install git+https://github.com/thetianshuhuang/papertools
 ```
 
-This installs every command listed above.
+This installs the `pt` command; `pt --help` lists its subcommands, and `pt <command> --help` shows a command's options.
 
 ## bibcheck
 
 Look up every entry of a `.bib` file in authoritative sources and report what disagrees. This catches the usual Google Scholar problems: arXiv citations of published papers, lost capitalization, truncated author lists, lost accents, and invented fields.
 
 ```bash
-bibcheck main.bib                    # report; exits 1 if there are warnings
-bibcheck main.bib --keys KEY1,KEY2
-bibcheck main.bib --fix              # rewrite flagged entries; original saved as main.bib.bak
+pt bibcheck main.bib                 # report; exits 1 if there are warnings
+pt bibcheck main.bib --keys KEY1,KEY2
+pt bibcheck main.bib --fix           # rewrite flagged entries; original saved as main.bib.bak
 ```
 
 
@@ -58,12 +58,12 @@ Download Google Slides diagrams as individual, transparent, tightly cropped PDFs
 Share the presentation as **Anyone with the link → Viewer**, then:
 
 ```bash
-gs2pdf "https://docs.google.com/presentation/d/PRESENTATION_ID/edit"
-gs2pdf "SLIDES_URL" --slides 1,3-5 --output-dir figures
-gs2pdf presentation.pdf  # an already downloaded PDF
+pt gs2pdf "https://docs.google.com/presentation/d/PRESENTATION_ID/edit"
+pt gs2pdf "SLIDES_URL" --slides 1,3-5 --output-dir figures
+pt gs2pdf presentation.pdf  # an already downloaded PDF
 ```
 
-Each slide is written to `figures/slide-001.pdf`, `slide-002.pdf`, and so on. Empty slides are skipped, and existing files are kept unless `--overwrite` is given. See `gs2pdf --help` for all options.
+Each slide is written to `figures/slide-001.pdf`, `slide-002.pdf`, and so on. Empty slides are skipped, and existing files are kept unless `--overwrite` is given. See `pt gs2pdf --help` for all options.
 
 Each slide should contain one diagram on a solid background; everything else on the slide, including titles, is kept. Image, gradient, and translucent slide backgrounds are not supported.
 
@@ -73,9 +73,9 @@ Anonymize a built static documentation site (e.g., from MkDocs or Zensical) so i
 
 ```bash
 zensical build                                   # or: mkdocs build
-anondoc site --config anondoc.yaml               # writes site-anon.zip, then checks it
-anondoc site --output anon/                      # write a directory instead
-anondoc site-anon.zip --check                    # only check; exits 1 if anything leaks
+pt anondoc site --config anondoc.yaml            # writes site-anon.zip, then checks it
+pt anondoc site --output anon/                   # write a directory instead
+pt anondoc site-anon.zip --check                 # only check; exits 1 if anything leaks
 ```
 
 The config lists the identifying terms, what to do with links that contain them, and theme-specific blocks to remove:
@@ -137,9 +137,9 @@ Reviewers can open `index.html` from the unzipped folder directly.
 Print a paper's abstract as plain text, ready to paste into a submission form. The paper's own macros are expanded, so `\name\ is $2\times$ faster\footnote{...}` becomes `Name is 2× faster`.
 
 ```bash
-texabstract main.tex          # or a directory containing it
-texabstract paper/ --math tex # keep $...$ for arXiv and OpenReview, which render MathJax
-texabstract main.tex | pbcopy # or xclip -selection clipboard, wl-copy
+pt texabstract main.tex          # or a directory containing it
+pt texabstract paper/ --math tex # keep $...$ for arXiv and OpenReview, which render MathJax
+pt texabstract main.tex | pbcopy # or xclip -selection clipboard, wl-copy
 ```
 
 The abstract is read from `\begin{abstract}...\end{abstract}`, or `\abstract{...}`, after inlining `\input`, `\include`, and `\subfile`. Given a directory, texabstract uses its `.tex` file with a `\documentclass`; if there are several, it uses the one with an abstract. The abstract goes to stdout, one line per paragraph. Warnings and the word and character counts go to stderr.
@@ -154,12 +154,12 @@ Anything else is dropped with an `unknown macro` warning, keeping its argument's
 
 ## overleaf-push
 
-Push to an Overleaf project's git remote while coauthors are editing it. Overleaf turns online edits into commits, so a push made while someone is typing is usually rejected, and the manual fix (commit, `git pull --rebase`, push, repeat) has to be timed to a pause in their typing. `overleaf-push` does that loop for you:
+Push to an Overleaf project's git remote while coauthors are editing it. Overleaf turns online edits into commits, so a push made while someone is typing is usually rejected, and the manual fix (commit, `git pull --rebase`, push, repeat) has to be timed to a pause in their typing. `pt overleaf-push` does that loop for you:
 
 ```bash
-overleaf-push                        # commit any changes, then rebase and push until it lands
-overleaf-push -m "Rewrite intro"     # commit message (default: "Update from <hostname>")
-overleaf-push --timeout 1800         # keep trying for up to 30 minutes (default 15)
+pt overleaf-push                     # commit any changes, then rebase and push until it lands
+pt overleaf-push -m "Rewrite intro"  # commit message (default: "Update from <hostname>")
+pt overleaf-push --timeout 1800      # keep trying for up to 30 minutes (default 15)
 ```
 
 Uncommitted changes are committed first with `git add -A` (which respects `.gitignore`). Each attempt fetches the upstream branch, rebases your commits onto it, and pushes; nothing is ever force-pushed. Attempts come in bursts of `--burst` (default 5), up to a second apart, to catch a pause in someone's typing. After each failed burst it waits about 5, 10, 20, 40, then 60 seconds, so a long editing session is outlasted without hammering the server.
@@ -177,9 +177,9 @@ It exits 0 once pushed (or if there is nothing to push), and 1 on a conflict, an
 Estimate how much of a paper's main body is taken up by figures and tables, to see where space can be saved before a page limit.
 
 ```bash
-figspace main.pdf                        # stop at References or the LLM Usage Statement
-figspace main.pdf --page-limit 8         # count at most 8 pages
-figspace main.pdf --annotate check.pdf   # also write a copy with the measured regions shaded
+pt figspace main.pdf                        # stop at References or the LLM Usage Statement
+pt figspace main.pdf --page-limit 8         # count at most 8 pages
+pt figspace main.pdf --annotate check.pdf   # also write a copy with the measured regions shaded
 ```
 
 ```
@@ -205,13 +205,16 @@ The measurements are heuristic. Use `--annotate` to check them: it shades figure
 
 ## Development
 
-Each tool lives in its own subpackage, `src/papertools/<tool>/`, with its tests in `tests/<tool>/`. To add a tool, create the subpackage with a `cli.py` whose `main(argv=None)` calls `papertools._cli.run(func, "<tool>", argv)` (this provides tyro parsing and `--version`), and register it under `[project.scripts]` in `pyproject.toml`:
+Each tool lives in its own subpackage, `src/papertools/<tool>/`, with its tests in `tests/<tool>/`. To add a tool, create the subpackage with a `cli.py` whose `main(argv=None)` calls `papertools._cli.run(func, "pt <tool>", argv)` (this provides tyro parsing and `--version`), and register it in `COMMANDS` in `src/papertools/cli.py`, with a one-line description for `pt --help`:
 
-```toml
-[project.scripts]
-gs2pdf = "papertools.gs2pdf.cli:main"
-newtool = "papertools.newtool.cli:main"
+```python
+COMMANDS = {
+    ...
+    "newtool": ("papertools.newtool.cli", "Do something useful."),
+}
 ```
+
+The tool's module is only imported when its subcommand runs, so a heavy dependency in one tool doesn't slow down the others.
 
 Run the checks with:
 

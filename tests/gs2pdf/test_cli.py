@@ -56,7 +56,7 @@ def test_help_and_version(capsys):
     assert exc.value.code == 0
     assert "gs2pdf" in capsys.readouterr().out
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "gs2pdf 0.1.0"
+    assert capsys.readouterr().out.strip() == "pt gs2pdf 0.1.0"
 
 
 @pytest.mark.parametrize("password", ["", "secret"])

@@ -94,4 +94,4 @@ def test_help_and_version(capsys):
     assert exc.value.code == 0
     assert "texabstract" in capsys.readouterr().out
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "texabstract 0.1.0"
+    assert capsys.readouterr().out.strip() == "pt texabstract 0.1.0"
