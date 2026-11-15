@@ -32,6 +32,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "papertools.figspace.cli",
         "Estimate how much of a paper its figures and tables take up.",
     ),
+    "supp-split": (
+        "papertools.supp_split.cli",
+        "Split a paper PDF into main text and supplementary material.",
+    ),
 }
 
 

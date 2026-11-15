@@ -10,6 +10,7 @@ Small command-line tools for preparing papers, run as subcommands of `pt`.
 | [`pt texabstract`](#texabstract) | Print a LaTeX paper's abstract as plain text, with its macros expanded. |
 | [`pt overleaf-push`](#overleaf-push) | Push to Overleaf's git bridge, retrying while coauthors are editing online. |
 | [`pt figspace`](#figspace) | Estimate how much of a paper's main body its figures and tables take up. |
+| [`pt supp-split`](#supp-split) | Split a paper PDF into its main text and supplementary material. |
 
 ## Install
 
@@ -202,6 +203,26 @@ Space is measured in pages of the text area, the region inside the margins, whic
 - **End of the main body:** counting stops at the first heading reading `References`, `Bibliography`, `LLM Usage Statement`, or `The Use of Large Language Models (LLMs)` (optionally numbered), or after `--page-limit` pages, whichever comes first. The part of the stop page before the heading is counted, in reading order: in two columns, a heading in the right column counts all of the left column. If neither is found, every page is counted, with a warning.
 
 The measurements are heuristic. Use `--annotate` to check them: it shades figures blue and tables orange, outlines the counted text area, and marks the end of the main body in red. A caption whose float could not be found is counted alone, with a warning. Floats without a numbered caption, such as algorithms or `wrapfigure`s, are not detected.
+
+## supp-split
+
+Split a compiled paper into two PDFs, the main text and the supplementary material, for venues that want them uploaded separately.
+
+```bash
+pt supp-split main.pdf                                # writes main-main.pdf and main-supp.pdf
+pt supp-split main.pdf --page 14                      # the supplement starts on page 14
+pt supp-split main.pdf --main paper.pdf --supp supp.pdf
+```
+
+The main text keeps everything before the supplement, including the references. The supplement starts at:
+
+1. the first section after LaTeX's `\appendix`, found from the anchors that hyperref puts in the PDF (e.g. `appendix.A`); or else
+2. the first line reading `Supplementary Material`, `Appendix`, `Appendix A: …`, or `Appendices` that is set larger or bolder than the body text; or
+3. the page given with `--page`, which overrides both.
+
+The split is between pages, so start the supplement on a new page with `\clearpage` (CVPR's `\maketitlesupplementary` follows one). If the bibliography ends on the supplement's first page, that page goes to the supplement, with a warning.
+
+Each part keeps its own bookmarks, links, and page labels (such as a supplement numbered S1, S2, …), and nothing from the other part. Links between the parts are removed, so a citation in the supplement stays as plain "[12]" text that refers to the main paper's bibliography. Existing output files are replaced.
 
 ## Development
 
