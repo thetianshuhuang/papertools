@@ -30,27 +30,51 @@ Look up every entry of a `.bib` file in authoritative sources and report what di
 pt bibcheck main.bib                 # report; exits 1 if there are warnings
 pt bibcheck main.bib --keys KEY1,KEY2
 pt bibcheck main.bib --fix           # rewrite flagged entries; original saved as main.bib.bak
+pt bibcheck main.bib --json          # machine-readable results
 ```
 
+
+The file is read first. A syntax error is reported where it starts, with the line, column, entry, and field, the source line marked with a caret, and a likely fix; for example, a value with a missing `}` that swallows the next field is reported at that value, not where the file finally stops making sense. Broken entries are skipped, the rest are checked, and the exit status is 1.
 
 Each entry is matched by its DOI, then its arXiv id, then an exact title search, and compared with the matching records:
 
 | Kind | Checks |
 | --- | --- |
-| `missing` | No record with this title exists anywhere: possibly a hallucinated reference. |
+| `missing` | No record with this title exists anywhere, the entry has no URL, and none could be found: possibly a hallucinated reference. |
+| `url` | The entry's URL is broken, shows another page, or couldn't be checked; or, for an entry no index has, a URL was found for it. |
 | `title` | Title differs from the record, or capitals were lost (e.g., in acronyms or mixed-case names). Unbraced acronyms are warnings if the paper's style lowercases titles, otherwise notes. |
-| `author` | Author count, `and others`, order, lost accents, all-caps names, and misspellings, compared against the record, DBLP, and arXiv. Differences that only arXiv or DBLP report (while the publisher agrees with you) are notes, as are nicknames. |
+| `author` | Author count, `and others` (fine when the full list is longer than `--max-authors` and the names given are its first ones), order, lost accents, all-caps names, and misspellings, compared against the record, DBLP, and arXiv. Differences that only arXiv or DBLP report (while the publisher agrees with you) are notes, as are nicknames. |
 | `arxiv` | The entry cites arXiv, but a published version exists. |
 | `venue`, `year`, `pages`, `doi` | Disagreements with the published record, plus Scholar artifacts such as `volume` equal to the year. Venues compare by conference, so an acronym matches the full proceedings name. |
-| `key` | Duplicate keys, or two entries for the same paper. |
+| `syntax` | What BibTeX warns about while reading (a field given twice, an undefined `@string`), and characters that break LaTeX when typeset: unescaped `&`, `%`, `#`, `_` or `^` outside math, unbalanced `$`. URLs and DOIs are exempt. |
+| `fields` | Fields BibTeX requires for the entry type (`journal` for `@article`, `booktitle` for `@inproceedings`, ...) are missing. |
+| `key` | Duplicate keys, or two entries for the same work: same title, or (once looked up) same DOI, arXiv id, matched record (e.g., an arXiv entry and its published version), link, or EU act. |
+
+Web pages, legislation, reports, and theses are rarely in those indexes, so entries without a record are checked by their URL (`url`, or `\url{}` in `howpublished` or `note`): a link that works and whose page title or text shows the cited title counts as evidence the reference exists. Links on EUR-Lex, which blocks scripts, are checked through the EU Publications Office's API by CELEX number, and handle links to [RECIPP](https://recipp.ipp.pt) through its DSpace API. For entries without a URL, one is suggested from the act's number (EU regulations and directives), [OpenAlex](https://openalex.org) (theses, reports, books), or RECIPP; for broken or changed links, from the Wayback Machine. An entry is reported `missing` only when all of that fails. Entries that can't be checked say what to add: a `doi=` or arXiv id for papers, a `url=` for everything else, or a working link in place of a dead one. Every `url` and `missing` finding lists what was fetched and what it showed, followed by links for checking by hand. Indexed entries' URLs are checked too; only a broken one is a warning. `--no-links` turns all of this off. Pages are only fetched from public internet addresses.
 
 Only warnings are shown by default; `--notes` adds minor findings that are usually fine. Read each warning before acting on it, since sources are sometimes the ones in error: arXiv has typos, and IEEE drops accents.
 
 Whether the style lowercases titles is read from the `\bibliographystyle` in the `.tex` files next to the `.bib` (most natbib styles do; biblatex doesn't). Override it with `--case sentence` or `--case keep`.
 
-`--fix` replaces each entry that has warnings with the authoritative BibTeX (the published version where one exists), keeping its key and every other byte of the file. Venue names come from the publisher, so `@String` abbreviations in fixed entries are replaced by full names. Entries are left alone when no record matches, and when the only published source is PMLR, which has no BibTeX API; copy those by hand.
+`--fix` replaces each entry that has warnings with the authoritative BibTeX (the published version where one exists), keeping its key and every other byte of the file. Matched entries without a DOI get the record's (`--notes` shows which), unless the match may be a different work or is a preprint of a published paper. Author lists are written in full, or, past `--max-authors` (default 10; 0 for no limit), as their first that many names and `and others`, which the check then accepts. Venue names come from the publisher, so `@String` abbreviations in fixed entries are replaced by full names. Entries are left alone when no record matches; when the record found by title may be a different work (no title or authors, or more than a year off); when the only published source is PMLR, which has no BibTeX API (copy those by hand); and when their only warnings are about URLs. Entries no index has get their suggested link written in when it was verified: as `doi=` if the work has a DOI, else as `url=`, replacing a dead link where it is written (in `url`, or a `\url{}` in `howpublished` or `note`).
 
-Lookups are cached for 7 days in `~/.cache/papertools/bibcheck` (`--no-cache` bypasses it). The first run takes a few seconds per entry because arXiv limits clients to one request every 3 seconds. Set `CROSSREF_MAILTO=you@example.edu` to use Crossref's faster pool.
+`--json` prints one JSON document instead of text: each entry's original BibTeX, whether and how it was found (`match`: `found`, `link`, `suggested`, `link-problem`, `not-found`, or `unchecked`), its issues with their workings, and, with `--fix`, its replacement. The format is described in `src/papertools/bibcheck/report.py`; the website's API returns the same document.
+
+Lookups are cached in `~/.cache/papertools/bibcheck`: answers for 14 days, "not found" answers (empty searches, 404s) for 7, since those are what change as papers get published, and pages fetched for link checks for 3. Failures are never cached. Expired answers are deleted once a day, and the oldest go first when the cache passes its size cap (1 GB). `--refresh` looks everything up again and updates the cache; `--no-cache` neither reads nor writes it. The first run takes a few seconds per entry because arXiv limits clients to one request every 3 seconds.
+
+#### Configuration
+
+Settings live in one TOML file: `~/.config/papertools/bibcheck.toml`, or the file named by `$BIBCHECK_CONFIG` or `--config`. [`bibcheck.example.toml`](bibcheck.example.toml) lists every setting with its default:
+
+- `[cache]`: folder, lifetimes per kind of answer, size cap, how often to prune;
+- `[sources]`: contact email (sent to Crossref and OpenAlex for their faster pools), Semantic Scholar API key, request timeout;
+- `[check]`: the default `--max-authors`.
+
+Every setting is optional, and mistakes (unknown names, wrong types) are reported with the file and setting. `CROSSREF_MAILTO`, `OPENALEX_MAILTO`, and `SEMANTIC_SCHOLAR_API_KEY` still work, and win over the file.
+
+### Website
+
+A website for bibcheck, [bibcheck-web](https://github.com/nampereira/bibcheck-web), is a separate project that uses papertools; see its README.
 
 ## gs2pdf
 
