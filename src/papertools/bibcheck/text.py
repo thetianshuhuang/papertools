@@ -174,3 +174,17 @@ def venue_family(venue: str) -> str | None:
         if pattern.search(venue):
             return name
     return None
+
+
+def same_paper(a: list[str], b: list[str]) -> bool:
+    """Loose author-list agreement, to reject same-title different papers."""
+    if not a or not b:
+        return True
+
+    def surnames(names):
+        return {name_key(n.split()[-1]) for n in names if n.split()}
+
+    sa, sb = surnames(a), surnames(b)
+    if name_key(a[0].split()[-1]) == name_key(b[0].split()[-1]):
+        return True
+    return len(sa & sb) >= max(1, min(len(sa), len(sb)) // 2)
