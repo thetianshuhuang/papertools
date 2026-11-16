@@ -1,0 +1,41 @@
+# bibcheck settings. Copy to ~/.config/papertools/bibcheck.toml (or point
+# $BIBCHECK_CONFIG or --config at it) and change what you need. Every table
+# and setting is optional; the values below are the defaults.
+
+[cache]
+# Where lookups are cached. "" means $XDG_CACHE_HOME/papertools/bibcheck
+# (~/.cache/papertools/bibcheck).
+dir = ""
+# How long answers are kept, in days. "Not found" answers (searches with no
+# results, 404s) are kept for less time: they're what changes, as papers get
+# published and DOIs registered.
+found_days = 14.0
+not_found_days = 7.0
+# Web pages fetched to check references' links.
+pages_days = 3.0
+# Size cap. When it's exceeded, the oldest answers are deleted first.
+max_size_mb = 1024.0
+# How often expired answers are deleted.
+prune_every_hours = 24.0
+
+[sources]
+# Sent to Crossref and OpenAlex, which serve clients that identify
+# themselves faster and more reliably. Overridden by $CROSSREF_MAILTO and
+# $OPENALEX_MAILTO.
+contact_email = ""
+# Semantic Scholar's anonymous pool is shared and often exhausted; a free key
+# (https://www.semanticscholar.org/product/api) avoids it. Overridden by
+# $SEMANTIC_SCHOLAR_API_KEY.
+semantic_scholar_api_key = ""
+# Seconds to wait for each request.
+timeout = 30.0
+# Most seconds fetching one reference's link may take, DNS to last byte.
+link_timeout = 30.0
+# Fetch links on any port. Off, only ports 80 and 443 are used, so a
+# website visitor can't use the server to probe other services.
+any_link_port = false
+
+[check]
+# Author lists longer than this are written by --fix as their first names
+# and "and others", and accepted in that form. 0 writes every author.
+max_authors = 10
