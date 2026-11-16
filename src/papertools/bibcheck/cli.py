@@ -1,45 +1,26 @@
 """bibcheck's console entry point."""
 
+import json as _json
 import math
 import sys
-from collections import Counter
 from pathlib import Path
 from typing import Annotated, Literal
 
 import tyro
 
 from .._cli import run
-from .bibtex import parse_bib
-from .checks import NOTE, WARN, Issue, check
+from .config import load_config
 from .errors import BibCheckError
-from .fix import fix_file
-from .resolve import Resolver
-from .sources import Http, Sources, default_cache_dir
+from .fix import write_fixed
+from .issues import NOTE
+from .session import (
+    CheckOptions,
+    CheckSession,
+    NoEntriesError,
+    UnknownKeysError,
+)
+from .sources import Http, Sources
 from .style import detect
-from .text import norm_title
-
-
-def _duplicates(entries) -> dict[str, list[Issue]]:
-    """Duplicate keys and duplicate titles within the file."""
-    out: dict[str, list[Issue]] = {}
-    keys = Counter(e.key for e in entries)
-    titles: dict[str, list[str]] = {}
-    for e in entries:
-        if t := norm_title(e.fields.get("title", "")):
-            titles.setdefault(t, []).append(e.key)
-    for e in entries:
-        found = []
-        if keys[e.key] > 1:
-            found.append(Issue(WARN, "key", "defined more than once"))
-        same = [
-            k for k in titles.get(norm_title(e.fields.get("title", "")), [])
-        ]
-        if len(same) > 1 and e.key == same[0]:
-            others = ", ".join(k for k in same[1:])
-            found.append(Issue(WARN, "key", f"same paper as {others}"))
-        if found:
-            out[e.key] = found
-    return out
 
 
 class _Progress:
@@ -75,14 +56,20 @@ def bibcheck(
     fix: bool = False,
     notes: bool = False,
     case: Literal["auto", "sentence", "keep"] = "auto",
+    max_authors: int | None = None,
+    no_links: bool = False,
+    json: bool = False,
     no_cache: bool = False,
-    timeout: float = 30,
+    refresh: bool = False,
+    timeout: float | None = None,
+    config: Path | None = None,
 ) -> int:
     r"""Check a .bib file against Crossref, arXiv, OpenReview, and DBLP.
 
     Reports titles, authors, venues, years, pages, and DOIs that disagree with
     the authoritative record, and arXiv entries with a published version.
-    Exits 1 if any warning was reported.
+    Entries no index has are checked by their URL instead, and a URL is
+    suggested for those without one. Exits 1 if any warning was reported.
 
     Args:
         bib: BibTeX file to check.
@@ -94,107 +81,184 @@ def bibcheck(
         case: Whether the bibliography style lowercases titles, which makes
             unbraced acronyms (MLPs, MIMO) warnings. "auto" reads the
             \bibliographystyle in .tex files next to the .bib.
-        no_cache: Don't use or update the 7-day lookup cache.
-        timeout: Timeout in seconds for each request.
+        max_authors: Author lists longer than this are written by --fix as
+            their first MAX_AUTHORS names and "and others", and are accepted
+            in that form. 0 always writes every author. Default: the config
+            file's check.max_authors (10).
+        no_links: Don't fetch entries' URLs, or look for URLs for entries
+            that no index has.
+        json: Print the results as one JSON document (notes included)
+            instead of text. Progress still goes to stderr.
+        no_cache: Don't use or update the lookup cache (answers are kept 14
+            days, "not found" 7 days, and checked web pages 3 days).
+        refresh: Look everything up again, ignoring cached answers, and
+            update the cache with the new ones.
+        timeout: Timeout in seconds for each request. Default: the config
+            file's sources.timeout (30).
+        config: Settings file (cache lifetimes and size, contact email, API
+            key, defaults). Default: $BIBCHECK_CONFIG, else
+            ~/.config/papertools/bibcheck.toml, if it exists.
 
     """
+    try:
+        settings = load_config(config)
+    except BibCheckError as exc:
+        print(f"bibcheck: {exc}", file=sys.stderr)
+        return 2
+    if max_authors is None:
+        max_authors = settings.check.max_authors
+    if timeout is None:
+        timeout = settings.sources.timeout
     if not math.isfinite(timeout) or timeout <= 0:
         print(
             "bibcheck: --timeout must be finite and positive.", file=sys.stderr
         )
         return 2
+    if max_authors < 0:
+        print("bibcheck: --max-authors must be 0 or more.", file=sys.stderr)
+        return 2
     try:
         text = bib.read_text()
-        entries = parse_bib(text)
-    except (BibCheckError, OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         print(f"bibcheck: {bib}: {exc}", file=sys.stderr)
         return 1
-    if keys:
-        wanted = {k.strip() for k in keys.split(",") if k.strip()}
-        if unknown := wanted - {e.key for e in entries}:
-            print(
-                f"bibcheck: no such key(s): {', '.join(sorted(unknown))}",
-                file=sys.stderr,
-            )
-            return 2
-        entries = [e for e in entries if e.key in wanted]
-
+    wanted = frozenset(k.strip() for k in (keys or "").split(",") if k.strip())
     if case == "auto":
         sentence_case, why = detect(bib)
-        print(f"Style: {why}", file=sys.stderr)
     else:
-        sentence_case = case == "sentence"
-
+        sentence_case, why = case == "sentence", f"--case {case}"
+    options = CheckOptions(
+        sentence_case=sentence_case,
+        max_authors=max_authors,
+        check_links=not no_links,
+        fix=fix,
+        refresh=refresh,
+        keys=wanted,
+    )
     progress = _Progress()
     http = Http(
         timeout=timeout,
-        cache_dir=None if no_cache else default_cache_dir(),
+        cache_dir=None if no_cache else settings.cache.folder(),
         on_wait=progress.detail,
+        refresh=refresh,
+        config=settings,
     )
-    sources = Sources(http)
-    resolver = Resolver(sources)
-    duplicates = _duplicates(entries)
-    results = []
-    counts = Counter()
+    # Broken entries are reported and skipped; the rest are checked.
     try:
-        for n, entry in enumerate(entries, 1):
-            progress.update(f"[{n}/{len(entries)}] {entry.key}")
-            res = resolver.resolve(entry)
-            issues = duplicates.get(entry.key, []) + check(
-                entry, res, sentence_case=sentence_case
-            )
-            results.append((entry, res, issues))
+        session = CheckSession(text, options, Sources(http))
+    except NoEntriesError as exc:
+        for error in exc.syntax_errors or [exc]:
+            print(f"bibcheck: {bib}: {error}", file=sys.stderr)
+        return 1
+    except UnknownKeysError as exc:
+        print(f"bibcheck: {exc}", file=sys.stderr)
+        return 2
+    if case == "auto":
+        print(f"Style: {why}", file=sys.stderr)
+
+    out = _Text(notes) if not json else None
+    if out and session.syntax_errors:
+        out.syntax_errors(session.syntax_errors)
+    total = len(session.entries)
+    progress.update(f"[1/{total}] {session.entries[0].key}")
+    try:
+        for n, result in enumerate(session.check(), 1):
             progress.clear()
-            for error in res.errors:
-                print(f"{entry.key}: {error}", file=sys.stderr)
-            shown = [i for i in issues if notes or i.level != NOTE]
-            if res.errors and res.primary is None:
-                counts["unchecked"] += 1
-            if any(i.kind == "missing" for i in issues):
-                counts["missing"] += 1
-            if any(i.level == WARN for i in issues):
-                counts["warn"] += 1
-            elif issues:
-                counts["note"] += 1
-            if shown:
-                found = (
-                    f"  ({res.primary.label}, via {res.via})"
-                    if res.primary
-                    else ""
-                )
-                print(f"{entry.key}{found}")
-                for i in shown:
-                    print(f"  {i.level:4}  {i.kind:7} {i.message}")
-            sys.stdout.flush()
+            for error in result.resolution.errors:
+                print(f"{result.entry.key}: {error}", file=sys.stderr)
+            if out:
+                out.entry(result.report)
+            if n < total:
+                progress.update(f"[{n + 1}/{total}] {session.entries[n].key}")
+        progress.update("Fixing" if fix else "")
+        for _ in session.fix() if fix else ():
+            pass
+        progress.clear()
     except KeyboardInterrupt:
         progress.clear()
         print("bibcheck: cancelled.", file=sys.stderr)
         return 130
 
-    summary = (
-        f"Checked {len(entries)} entries: {counts['warn']} with warnings"
-        + f", {counts['missing']} not found"
-    )
-    if counts["note"]:
-        summary += f", {counts['note']} with notes only"
-        if not notes:
-            summary += " (--notes to show)"
-    if counts["unchecked"]:
-        summary += f", {counts['unchecked']} unchecked (source errors)"
-    print(summary + ".")
-
-    if fix:
+    backup = None
+    if fix and session.fixes and any(f.applied for f in session.fixes):
         try:
-            fixed, skipped, backup = fix_file(bib, text, results, sources)
+            backup = str(write_fixed(bib, session.fixed_text))
         except OSError as exc:
             print(f"bibcheck: cannot write {bib}: {exc}", file=sys.stderr)
             return 1
-        print(f"Fixed {len(fixed)}: {', '.join(fixed) or '-'}")
-        for key, reason in skipped:
-            print(f"Not fixed: {key} ({reason})")
-        if backup:
-            print(f"Backup: {backup}")
-    return 1 if counts["warn"] or counts["unchecked"] else 0
+    report = session.report(str(bib), why, backup)
+    if out:
+        out.summary(report["summary"])
+        if report["fix"]:
+            out.fixes(report["fix"])
+    else:
+        _json.dump(report, sys.stdout, indent=2, ensure_ascii=False)
+        print()
+    summary = report["summary"]
+    failed = (
+        summary["warnings"] or summary["unchecked"] or summary["syntax_errors"]
+    )
+    return 1 if failed else 0
+
+
+class _Text:
+    """The human-readable report, printed as entries are checked."""
+
+    def __init__(self, notes: bool):
+        self.notes = notes
+
+    def entry(self, e: dict) -> None:
+        shown = [i for i in e["issues"] if self.notes or i["level"] != NOTE]
+        if shown:
+            found = (
+                f"  ({e['found']['label']}, via {e['via']})"
+                if e["found"]
+                else ""
+            )
+            print(f"{e['key']}{found}")
+            for i in shown:
+                print(f"  {i['level']:4}  {i['kind']:7} {i['message']}")
+                for line in i["details"]:
+                    print(f"{'':16}{line}")
+        sys.stdout.flush()
+
+    @staticmethod
+    def syntax_errors(errors) -> None:
+        n = len(errors)
+        print(
+            f"{n} syntax error{'s' if n > 1 else ''}; "
+            f"{'these entries were' if n > 1 else 'this entry was'} skipped:"
+        )
+        for error in errors:
+            print(f"  {str(error).replace(chr(10), chr(10) + '  ')}")
+        print()
+
+    def summary(self, s: dict) -> None:
+        text = (
+            f"Checked {s['checked']} entries: {s['warnings']} with warnings"
+            f", {s['missing']} not found"
+        )
+        if s["notes_only"]:
+            text += f", {s['notes_only']} with notes only"
+            if not self.notes:
+                text += " (--notes to show)"
+        if s["unchecked"]:
+            text += f", {s['unchecked']} unchecked (source errors)"
+        if s.get("syntax_errors"):
+            text += f", {s['syntax_errors']} skipped (syntax errors)"
+        print(text + ".")
+
+    @staticmethod
+    def fixes(f: dict) -> None:
+        keys = ", ".join(x["key"] for x in f["fixed"]) or "-"
+        print(f"Fixed {len(f['fixed'])}: {keys}")
+        for x in f["fixed"]:
+            if x["kind"] != "rebuilt":
+                print(f"  {x['key']}: {x['change']}")
+        for x in f["skipped"]:
+            print(f"Not fixed: {x['key']} ({x['reason']})")
+        if f["backup"]:
+            print(f"Backup: {f['backup']}")
 
 
 def main(argv: list[str] | None = None) -> int:

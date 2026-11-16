@@ -1,12 +1,24 @@
-"""Compare a .bib entry with the records the sources returned."""
+"""Compare a .bib entry with the records the sources returned.
+
+:func:`check` runs :data:`CHECKS`, a list of small checkers, in order; each
+looks at one thing and returns its issues, so a new check is a new function
+in the list. Most compare the entry with its record and skip entries no
+index has; those are judged by their link (:mod:`.link_issues`).
+"""
 
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .bibtex import Entry
+from .duplicates import Duplicates, duplicates, identities
+from .issues import DEFAULT_MAX_AUTHORS, NOTE, WARN, Issue, IssueKind
+from .link_issues import link_issues, unindexed_issues, url_advice
+from .matching import doubtful_match, known_doi
 from .resolve import Resolution, entry_doi, entry_venue, is_preprint_entry
 from .sources import Record
+from .syntax import lint
 from .text import (
     count_accents,
     delatex,
@@ -19,68 +31,159 @@ from .text import (
     venue_family,
 )
 
-WARN, NOTE = "warn", "note"
+# Re-exported: these lived here before the split, and callers import them.
+__all__ = [
+    "CHECKS",
+    "DEFAULT_MAX_AUTHORS",
+    "NOTE",
+    "WARN",
+    "Duplicates",
+    "Issue",
+    "IssueKind",
+    "check",
+    "doubtful_match",
+    "duplicates",
+    "identities",
+    "known_doi",
+    "url_advice",
+]
 
 
-@dataclass
-class Issue:
-    """One finding. ``level`` is ``warn`` (likely wrong) or ``note``."""
+@dataclass(frozen=True)
+class Context:
+    """The options checkers need besides the entry and its resolution."""
 
-    level: str
-    kind: str
-    message: str
+    sentence_case: bool = False
+    max_authors: int = DEFAULT_MAX_AUTHORS
 
 
-def check(
-    entry: Entry, res: Resolution, *, sentence_case: bool = False
-) -> list[Issue]:
-    """Return every issue found for ``entry``.
+Checker = Callable[[Entry, Resolution, Context], list[Issue]]
 
-    With ``sentence_case`` (the paper's ``.bst`` lowercases titles), unbraced
-    acronyms are warnings rather than notes.
-    """
-    issues: list[Issue] = []
-    if res.bad_doi:
-        issues.append(
-            Issue(WARN, "doi", f"{entry_doi(entry)} does not resolve")
+
+def needs_record(checker: Checker) -> Checker:
+    """Skip ``checker`` for entries no index has."""
+
+    def run(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+        return checker(entry, res, ctx) if res.primary is not None else []
+
+    run.__name__ = run.__qualname__ = checker.__name__
+    run.__doc__ = checker.__doc__
+    return run
+
+
+def syntax_issues(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """What BibTeX or LaTeX would trip over (see :mod:`.syntax`)."""
+    return [Issue(WARN, kind, message) for kind, message in lint(entry)]
+
+
+def bad_doi(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """The entry's DOI doesn't resolve."""
+    if not res.bad_doi:
+        return []
+    return [Issue(WARN, "doi", f"{entry_doi(entry)} does not resolve")]
+
+
+def not_indexed(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """No index has it: judge it by its link."""
+    return unindexed_issues(entry, res) if res.primary is None else []
+
+
+@needs_record
+def own_link(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """An indexed entry's link: only a broken one is a warning."""
+    return link_issues(entry, res)
+
+
+@needs_record
+def missing_doi(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """The record has a DOI the entry lacks."""
+    if not (doi := known_doi(entry, res)):
+        return []
+    return [
+        Issue(
+            NOTE,
+            "doi",
+            f"no doi; {res.primary.label} has it (--fix adds doi={{{doi}}})",
         )
-    if res.primary is None:
-        if not res.errors:
-            issues.append(
-                Issue(
-                    WARN,
-                    "missing",
-                    "no matching record on Crossref, arXiv, OpenReview, "
-                    "DBLP, or Semantic Scholar",
-                )
-            )
-        return issues
-    issues += _title(entry, res.primary, sentence_case)
-    issues += _authors(entry, res)
-    preprint = is_preprint_entry(entry)
-    if preprint and res.published:
-        issues.append(
+    ]
+
+
+@needs_record
+def title(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """Title wording and capitalization."""
+    return _title(entry, res.primary, ctx.sentence_case)
+
+
+@needs_record
+def authors(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """Author count, order, spelling, accents, and ``and others``."""
+    return _authors(entry, res, ctx.max_authors)
+
+
+@needs_record
+def published_version(
+    entry: Entry, res: Resolution, ctx: Context
+) -> list[Issue]:
+    """An arXiv entry whose paper has been published."""
+    if not is_preprint_entry(entry):
+        return []
+    if res.published:
+        return [
             Issue(
                 WARN,
                 "arxiv",
                 f"published version exists: {res.published.where} "
                 f"({res.published.label})",
             )
-        )
-    elif preprint and res.hint:
-        issues.append(
+        ]
+    if res.hint:
+        # Semantic Scholar's year is the first (arXiv) year, so not shown.
+        return [
             Issue(
                 WARN,
                 "arxiv",
-                # Semantic Scholar's year is the first (arXiv) year, so it
-                # is not shown.
                 f"published in {res.hint.venue} according to Semantic "
                 "Scholar; cite that version",
             )
-        )
-    if not preprint:
-        issues += _metadata(entry, res)
-    return issues
+        ]
+    return []
+
+
+@needs_record
+def metadata(entry: Entry, res: Resolution, ctx: Context) -> list[Issue]:
+    """Venue, year, pages, and DOI against the published record."""
+    return [] if is_preprint_entry(entry) else _metadata(entry, res)
+
+
+# Run in this order; issues are reported in this order.
+CHECKS: list[Checker] = [
+    syntax_issues,
+    bad_doi,
+    not_indexed,
+    own_link,
+    missing_doi,
+    title,
+    authors,
+    published_version,
+    metadata,
+]
+
+
+def check(
+    entry: Entry,
+    res: Resolution,
+    *,
+    sentence_case: bool = False,
+    max_authors: int = DEFAULT_MAX_AUTHORS,
+) -> list[Issue]:
+    """Return every issue found for ``entry``.
+
+    With ``sentence_case`` (the paper's ``.bst`` lowercases titles), unbraced
+    acronyms are warnings rather than notes. Author lists longer than
+    ``max_authors`` may be cut short with ``and others``.
+    """
+    ctx = Context(sentence_case, max_authors)
+    return [issue for checker in CHECKS for issue in checker(entry, res, ctx)]
 
 
 def _title(entry: Entry, record: Record, sentence_case: bool) -> list[Issue]:
@@ -169,25 +272,16 @@ def _given_compatible(a: str, b: str) -> bool:
     return first_a.startswith(first_b) or first_b.startswith(first_a)
 
 
-def _authors(entry: Entry, res: Resolution) -> list[Issue]:
+def _authors(entry: Entry, res: Resolution, max_authors: int) -> list[Issue]:
     field_value = entry.fields.get("author", "")
     if not field_value:
         return [Issue(WARN, "author", "missing")]
     ours = split_authors(field_value)
-    refs = [r for r in [res.primary, *res.references] if r and r.source != "s2"]
+    refs = [r for r in [res.primary, *res.references] if r and not r.hint_only]
     refs = [r for r in refs if r.authors]
     issues = []
     if ours and ours[-1].lower() == "others":
-        n = max((len(r.authors) for r in refs), default=0)
-        issues.append(
-            Issue(
-                WARN,
-                "author",
-                "truncated with 'and others'"
-                + (f" (full list has {n} authors)" if n else ""),
-            )
-        )
-        return issues
+        return _truncated(ours[:-1], refs, max_authors)
     # When the primary record agrees with ours, differences that only a
     # reference (DBLP, arXiv) reports are usually the reference's problem
     # (arXiv author order changed, typos) and are demoted to notes. Accents
@@ -195,7 +289,7 @@ def _authors(entry: Entry, res: Resolution) -> list[Issue]:
     primary = res.primary
     primary_agrees = (
         primary is not None
-        and primary.source != "s2"
+        and not primary.hint_only
         and [name_key(n) for n in primary.authors]
         == [name_key(n) for n in ours]
     )
@@ -241,6 +335,30 @@ def _authors(entry: Entry, res: Resolution) -> list[Issue]:
             Issue(level, "author", message.format(src="/".join(srcs)))
         )
     return issues
+
+
+def _truncated(listed: list[str], refs, max_authors: int) -> list[Issue]:
+    """An ``and others`` list: fine if the full list is long enough.
+
+    The names given must be the first names of the full list.
+    """
+    full = max((r.authors for r in refs), key=len, default=[])
+    n = len(full)
+    where = f" (full list has {n} authors)" if n else ""
+    if n and [name_key(a) for a in listed] != [
+        name_key(a) for a in full[: len(listed)]
+    ]:
+        return [
+            Issue(
+                WARN,
+                "author",
+                f"truncated with 'and others', but the names given aren't "
+                f"the first {len(listed)} of the {n}",
+            )
+        ]
+    if n > max_authors:
+        return [Issue(NOTE, "author", f"truncated with 'and others'{where}")]
+    return [Issue(WARN, "author", f"truncated with 'and others'{where}")]
 
 
 def _metadata(entry: Entry, res: Resolution) -> list[Issue]:

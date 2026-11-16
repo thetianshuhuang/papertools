@@ -6,8 +6,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from papertools.bibcheck import sources
 from papertools.bibcheck.sources import Http, NotFoundError, SourceError
+from papertools.bibcheck.sources import http as sources
 
 
 class Clock:

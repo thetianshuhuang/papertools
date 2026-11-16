@@ -3,10 +3,20 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .bibtex import Entry
 from .sources import ARXIV_ID, NotFoundError, Record, SourceError, Sources
-from .text import delatex, name_key, norm_title, split_authors, venue_family
+from .text import (
+    delatex,
+    norm_title,
+    same_paper,
+    split_authors,
+    venue_family,
+)
+
+if TYPE_CHECKING:
+    from .links import LinkCheck
 
 # Preference among published records found by title search.
 _RANK = {"crossref": 0, "openreview": 1, "dblp": 2, "s2": 3, "arxiv": 4}
@@ -27,6 +37,8 @@ class Resolution:
         references: Extra records (DBLP mirror, arXiv) for author checks.
         bad_doi: The entry's DOI did not resolve.
         errors: Sources that failed, as messages.
+        link: What checking the entry's URL (or finding one) showed; None
+            when there was nothing to check.
 
     """
 
@@ -37,6 +49,7 @@ class Resolution:
     references: list[Record] = field(default_factory=list)
     bad_doi: bool = False
     errors: list[str] = field(default_factory=list)
+    link: "LinkCheck | None" = None
 
 
 def entry_doi(entry: Entry) -> str:
@@ -98,22 +111,11 @@ def is_preprint_entry(entry: Entry) -> bool:
     )
 
 
-def same_paper(a: list[str], b: list[str]) -> bool:
-    """Loose author-list agreement, to reject same-title different papers."""
-    if not a or not b:
-        return True
-
-    def surnames(names):
-        return {name_key(n.split()[-1]) for n in names if n.split()}
-
-    sa, sb = surnames(a), surnames(b)
-    if name_key(a[0].split()[-1]) == name_key(b[0].split()[-1]):
-        return True
-    return len(sa & sb) >= max(1, min(len(sa), len(sb)) // 2)
-
-
 class Resolver:
-    """Resolve entries against :class:`Sources`, collecting source errors."""
+    """Find what the sources say about entries, collecting source errors.
+
+    Link checking is a separate step (:class:`.links.LinkChecker`).
+    """
 
     def __init__(self, sources: Sources):
         self.sources = sources
@@ -130,35 +132,54 @@ class Resolver:
     def resolve(self, entry: Entry) -> Resolution:
         """Look up ``entry`` and return everything the sources say."""
         res = Resolution()
-        s = self.sources
-        ours = split_authors(entry.fields.get("author", ""))
-        title = entry.fields.get("title", "")
+        self._by_identifier(entry, res)
+        primary = res.primary
+        title = primary.title if primary and primary.title else ""
+        title = title or entry.fields.get("title", "")
+        if not title:
+            return res
+        authors = (
+            primary.authors
+            if primary
+            else split_authors(entry.fields.get("author", ""))
+        )
+        matches = self._search_title(res, title, authors)
+        if res.primary is None:
+            self._match_by_title(entry, res, title, matches)
+            if res.primary is None:
+                return res
+        res.primary = self._upgrade(res, res.primary)
+        self._find_published(entry, res, title, matches)
+        self._add_references(res, matches)
+        return res
 
+    def _by_identifier(self, entry: Entry, res: Resolution) -> None:
+        """Look the entry up by its DOI, else its arXiv id."""
         doi, aid = entry_doi(entry), entry_arxiv_id(entry)
         if doi and not doi.lower().startswith("10.48550/"):
-            res.primary = self._try(res, "doi.org", s.doi, doi)
+            res.primary = self._try(res, "doi.org", self.sources.doi, doi)
             res.via = "doi"
             res.bad_doi = res.primary is None and not res.errors
         if res.primary is None and aid:
-            res.primary = self._try(res, "arXiv", s.arxiv_id, aid)
+            res.primary = self._try(res, "arXiv", self.sources.arxiv_id, aid)
             res.via = "arXiv id"
-        if res.primary and res.primary.title:
-            title = res.primary.title
-        if not title:
-            return res
 
-        candidates: list[Record] = []
-        want_published = res.primary is None or res.primary.preprint
-        if want_published:
-            candidates += (
-                self._try(res, "Crossref", s.crossref_search, title) or []
-            )
-        candidates += (
-            self._try(res, "OpenReview", s.openreview_search, title) or []
-        )
-        if res.primary is None or res.primary.source != "arxiv":
-            candidates += self._try(res, "arXiv", s.arxiv_search, title) or []
-        authors = res.primary.authors if res.primary else ours
+    def _search_title(
+        self, res: Resolution, title: str, authors: list[str]
+    ) -> list[Record]:
+        """Records with exactly this title, by overlapping authors."""
+        s, primary = self.sources, res.primary
+        want_published = primary is None or primary.preprint
+        # (source, search, whether it's worth asking)
+        searches = [
+            ("Crossref", s.crossref_search, want_published),
+            ("OpenReview", s.openreview_search, True),
+            (
+                "arXiv",
+                s.arxiv_search,
+                primary is None or primary.source != "arxiv",
+            ),
+        ]
 
         def matching(records: list[Record]) -> list[Record]:
             return [
@@ -168,52 +189,72 @@ class Resolver:
                 and same_paper(authors, r.authors)
             ]
 
-        matches = matching(candidates)
+        matches = matching(
+            [
+                record
+                for name, search, wanted in searches
+                if wanted
+                for record in self._try(res, name, search, title) or []
+            ]
+        )
         # OpenReview's v1 API holds pre-2023 venues (ICLR 2021, ...) but
         # allows only 5 searches a minute, so it's the last resort.
         if (
             want_published
             and not any(not r.preprint for r in matches)
-            and not (res.primary and res.primary.published_doi)
+            and not (primary and primary.published_doi)
         ):
             legacy = self._try(
                 res, "OpenReview", s.openreview_search, title, True
             )
             matches += matching(legacy or [])
+        return matches
 
+    def _match_by_title(
+        self, entry: Entry, res: Resolution, title: str, matches: list
+    ) -> None:
+        """No identifier: the best title match, else Semantic Scholar's."""
+        res.primary = self._pick(matches, entry)
         if res.primary is None:
-            res.primary = self._pick(matches, entry)
-            res.via = "title" if res.primary else ""
-        if res.primary is None:
-            hint = self._try(res, "Semantic Scholar", s.s2_match, title)
+            hint = self._try(
+                res, "Semantic Scholar", self.sources.s2_match, title
+            )
             if hint and norm_title(hint.title) == norm_title(title):
-                res.primary, res.via = hint, "title"
-        if res.primary is None:
-            return res
+                res.primary = hint
+        res.via = "title" if res.primary else ""
 
-        res.primary = self._upgrade(res, res.primary)
-        if not res.primary.preprint:
-            res.published = res.primary
-        else:
-            if res.primary.published_doi:
-                res.published = self._try(
-                    res, "doi.org", s.doi, res.primary.published_doi
-                )
-            if res.published is None:
-                res.published = self._pick(
-                    [r for r in matches if not r.preprint], entry
-                )
-                if res.published:
-                    res.published = self._upgrade(res, res.published)
-            if res.published is None and res.primary.source != "s2":
-                hint = self._try(res, "Semantic Scholar", s.s2_match, title)
-                if (
-                    hint
-                    and not hint.preprint
-                    and norm_title(hint.title) == norm_title(title)
-                ):
-                    res.hint = hint
+    def _find_published(
+        self, entry: Entry, res: Resolution, title: str, matches: list
+    ) -> None:
+        """The published version: the primary itself, or found for it."""
+        primary = res.primary
+        if not primary.preprint:
+            res.published = primary
+            return
+        if primary.published_doi:
+            res.published = self._try(
+                res, "doi.org", self.sources.doi, primary.published_doi
+            )
+        if res.published is None:
+            res.published = self._pick(
+                [r for r in matches if not r.preprint], entry
+            )
+            if res.published:
+                res.published = self._upgrade(res, res.published)
+        if res.published is None and not primary.hint_only:
+            hint = self._try(
+                res, "Semantic Scholar", self.sources.s2_match, title
+            )
+            if (
+                hint
+                and not hint.preprint
+                and norm_title(hint.title) == norm_title(title)
+            ):
+                res.hint = hint
 
+    @staticmethod
+    def _add_references(res: Resolution, matches: list[Record]) -> None:
+        """DBLP and arXiv records, to check authors against."""
         for source in ("dblp", "arxiv"):
             if any(r.source == source for r in res.references):
                 continue
@@ -226,7 +267,6 @@ class Resolver:
             refs.sort(key=lambda r: r.preprint)
             if refs:
                 res.references.append(refs[0])
-        return res
 
     def _upgrade(self, res: Resolution, record: Record) -> Record:
         """Swap a DBLP record for its publisher's DOI record, if it has one.

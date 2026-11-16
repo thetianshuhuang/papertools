@@ -1,12 +1,18 @@
 """A fake web of Crossref, arXiv, OpenReview, and Semantic Scholar replies."""
 
 import json
+from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import pytest
 
 from papertools.bibcheck import cli
-from papertools.bibcheck.sources import NotFoundError, SourceError
+from papertools.bibcheck.sources import (
+    NotFoundError,
+    OperationCancelledError,
+    Page,
+    SourceError,
+)
 from papertools.bibcheck.text import norm_title
 
 PAPER_CSL = {
@@ -111,7 +117,18 @@ def _lookup(table: dict, title: str, default):
 
 
 class FakeWeb:
-    """Callable standing in for ``Http``; records every request."""
+    """Stands in for ``Http`` (the ``HttpClient`` protocol)."""
+
+    cache = None
+
+    @contextmanager
+    def using(self, *, refresh=None, on_wait=None, cancel=None):
+        """Per-run options; requests check cancellation, like ``Http``'s."""
+        self._cancel = cancel
+        try:
+            yield
+        finally:
+            self._cancel = None
 
     def __init__(self):
         self.calls: list[str] = []
@@ -132,8 +149,36 @@ class FakeWeb:
         }
         self.crossref: dict[str, list[dict]] = {}
         self.s2: dict[str, dict] = {}
+        # Web pages by URL: (status, html) or a Page. Others don't exist.
+        self.pages: dict[str, tuple[int, str] | Page] = {}
+        self.openalex: dict[str, list[dict]] = {}
+        self.eu_acts: dict[str, str] = {}  # CELEX -> English title
+        self.wayback_snapshots: dict[str, tuple[str, str]] = {}
+        # DSpace (RECIPP) items by title: (handle, authors, type, year).
+        self.dspace: dict[str, tuple[str, list[str], str, str]] = {}
+
+    def page(self, url):
+        """Stand-in for ``Http.page``."""
+        self.calls.append(urlparse(url).netloc)
+        found = self.pages.get(url)
+        if isinstance(found, Page):
+            return found
+        if found is None:
+            host = urlparse(url).netloc
+            return Page(
+                url, url, error=f"host {host} does not exist", error_kind="dns"
+            )
+        status, body = found
+        return Page(url, url, status, "text/html", body.encode())
+
+    _cancel = None
+
+    def maintain(self):
+        """No cache to prune."""
 
     def __call__(self, url, params=None, accept=None):
+        if self._cancel is not None and self._cancel.is_set():
+            raise OperationCancelledError
         host = urlparse(url).netloc
         self.calls.append(host)
         if host in self.down:
@@ -163,7 +208,70 @@ class FakeWeb:
             if paper := _lookup(self.s2, params["query"], None):
                 return json.dumps({"data": [paper]})
             raise NotFoundError(url)
+        if host == "api.openalex.org":
+            works = _lookup(self.openalex, params["search"], [])
+            return json.dumps({"results": works})
+        if host == "publications.europa.eu":
+            celex = params["query"].split('legal_id_celex "')[1].split('"')[0]
+            title = self.eu_acts.get(celex)
+            rows = [{"t": {"value": title}}] if title else []
+            return json.dumps({"results": {"bindings": rows}})
+        if host == "recipp.ipp.pt":
+            title = params["query"]
+            found = _lookup(self.dspace, title, None)
+            objects = []
+            if found:
+                handle, authors, kind, year = found
+                meta = {
+                    "dc.title": [{"value": title}],
+                    "dc.contributor.author": [{"value": a} for a in authors],
+                    "dc.type": [{"value": kind}],
+                    "dc.date.issued": [{"value": year}],
+                    "dc.identifier.uri": [
+                        {"value": f"http://hdl.handle.net/{handle}"}
+                    ],
+                }
+                objects.append(
+                    {
+                        "_embedded": {
+                            "indexableObject": {
+                                "handle": handle,
+                                "name": title,
+                                "metadata": meta,
+                            }
+                        }
+                    }
+                )
+            return json.dumps(
+                {
+                    "_embedded": {
+                        "searchResult": {"_embedded": {"objects": objects}}
+                    }
+                }
+            )
+        if host == "archive.org":
+            snap = self.wayback_snapshots.get(params["url"])
+            closest = (
+                {"available": True, "url": snap[0], "timestamp": snap[1]}
+                if snap
+                else None
+            )
+            return json.dumps({"archived_snapshots": {"closest": closest}})
         raise AssertionError(f"unexpected request {url}")
+
+
+@pytest.fixture(autouse=True)
+def _isolated(tmp_path, monkeypatch):
+    """Keep tests away from the real config file, cache, and job folder."""
+    monkeypatch.setenv("BIBCHECK_CONFIG", str(tmp_path / "no-config.toml"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    for name in (
+        "CROSSREF_MAILTO",
+        "OPENALEX_MAILTO",
+        "SEMANTIC_SCHOLAR_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

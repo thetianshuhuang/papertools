@@ -8,6 +8,7 @@ from papertools.bibcheck.resolve import (
     is_preprint_entry,
 )
 from papertools.bibcheck.sources import Record
+from papertools.bibcheck.sources.crossref import Crossref
 
 PAPER = Record(
     source="crossref",
@@ -29,9 +30,9 @@ PAPER_DBLP = Record(
 
 
 def entry(**fields):
-    """Build an inproceedings entry from keyword fields."""
+    """Build an entry from keyword fields (@misc: no required fields)."""
     body = ", ".join(f"{k}={{{v}}}" for k, v in fields.items())
-    return parse_entry(f"@inproceedings{{key, {body}}}")
+    return parse_entry(f"@misc{{key, {body}}}")
 
 
 def good(**override):
@@ -201,7 +202,8 @@ def test_metadata_mismatches():
         (WARN, "doi"),
     ]
     # A missing DOI is not reported: most styles don't print it.
-    assert check(good(doi=""), resolution()) == []
+    # No DOI is fine, but the record's is offered.
+    assert kinds(check(good(doi=""), resolution())) == [(NOTE, "doi")]
 
 
 def test_scholar_artifacts_on_iclr():
@@ -245,7 +247,9 @@ def test_arxiv_entries():
     issues = check(e, resolution(primary=preprint, published=None, hint=hint))
     assert "Semantic Scholar" in issues[0].message
     # Year and venue are not compared for preprint entries.
-    assert check(e, resolution(primary=preprint, published=None)) == []
+    assert kinds(check(e, resolution(primary=preprint, published=None))) == [
+        (NOTE, "doi")
+    ]
 
 
 def test_arxiv_id_forms():
@@ -263,9 +267,7 @@ def test_arxiv_id_forms():
 
 def test_csl_subtitle_and_print_year():
     """ACM subtitles are joined; the print year wins over online-first."""
-    from papertools.bibcheck.sources import Sources
-
-    rec = Sources._csl(
+    rec = Crossref._csl(
         {
             "DOI": "10.1145/x",
             "title": "SpotFi",
@@ -277,7 +279,7 @@ def test_csl_subtitle_and_print_year():
     assert rec.title == "SpotFi: Decimeter Level Localization Using WiFi"
     assert rec.year == "2013"
     assert rec.other_years == {"2012"}
-    rec = Sources._csl({"title": ["A: B"], "subtitle": ["B"]})
+    rec = Crossref._csl({"title": ["A: B"], "subtitle": ["B"]})
     assert rec.title == "A: B"
 
 
